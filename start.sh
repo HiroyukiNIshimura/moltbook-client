@@ -22,11 +22,11 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # プロジェクトディレクトリに移動
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR" || exit
 
 # バックグラウンドで起動
 echo "🚀 Moltbook Agent を起動しています..."
-nohup npm run start > "$LOG_DIR/nohup.log" 2>&1 &
+nohup npm run start > /dev/null 2>&1 &
 
 # PIDを保存
 PID=$!

@@ -38,7 +38,7 @@ echo "🛑 エージェントを停止しています (PID: $PID)..."
 kill "$PID"
 
 # 終了を待機 (最大10秒)
-for i in {1..10}; do
+for _ in {1..10}; do
     if ! ps -p "$PID" > /dev/null 2>&1; then
         echo "✅ エージェントが正常に停止しました"
         rm -f "$PID_FILE"
