@@ -5,7 +5,10 @@
 import { MoltbookClient, MoltbookError } from './moltbook/client.js';
 import { DeepSeekClient } from './llm/deepseek.js';
 import { StateManager } from './state/memory.js';
+import { createLogger } from './logger.js';
 import type { Post } from './moltbook/types.js';
+
+const log = createLogger('agent');
 
 export class T69Agent {
   private moltbook: MoltbookClient;
@@ -20,14 +23,6 @@ export class T69Agent {
   }
 
   /**
-   * ログ出力（博多弁）
-   */
-  private log(message: string): void {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] 🦞 ${message}`);
-  }
-
-  /**
    * スリープ
    */
   private sleep(ms: number): Promise<void> {
@@ -38,12 +33,12 @@ export class T69Agent {
    * ハートビート（定期実行）
    */
   async heartbeat(): Promise<void> {
-    this.log('ハートビート開始やけん！');
+    log.info('🦞 ハートビート開始やけん！');
 
     try {
       // 1. 自分の状態を確認
       const me = await this.moltbook.getMe();
-      this.log(`うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
+      log.info(`🦞 うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
 
       // 2. フィードをチェック
       await this.checkFeed();
@@ -55,19 +50,17 @@ export class T69Agent {
       this.state.updateLastHeartbeat();
 
       const stats = this.state.getStats();
-      this.log(`今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件`);
-      this.log('ハートビート完了！また後でね〜');
+      log.info({ stats }, `🦞 今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件`);
+      log.info('🦞 ハートビート完了！また後でね〜');
 
     } catch (error) {
       if (error instanceof MoltbookError) {
-        this.log(`エラーやん... ${error.message}`);
-        if (error.hint) this.log(`ヒント: ${error.hint}`);
+        log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
+        if (error.hint) log.info(`ヒント: ${error.hint}`);
       } else if (error instanceof Error) {
-        this.log(`エラーやん... ${error.message}`);
-        // デバッグ用: スタックトレースを表示
-        console.error(error.stack);
+        log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
       } else {
-        this.log(`なんかおかしかばい: ${error}`);
+        log.error(`🦞 なんかおかしかばい: ${error}`);
       }
     }
   }
@@ -76,13 +69,13 @@ export class T69Agent {
    * フィードをチェックして反応
    */
   private async checkFeed(): Promise<void> {
-    this.log('フィードをチェックするばい〜');
+    log.info('🦞 フィードをチェックするばい〜');
 
     // パーソナライズドフィードではなくグローバル投稿を取得
     const feed = await this.moltbook.getPosts({ sort: 'new', limit: 15 });
     const posts = feed.posts || [];
 
-    this.log(`${posts.length}件の投稿があるっちゃね`);
+    log.info(`🦞 ${posts.length}件の投稿があるっちゃね`);
 
     for (const post of posts) {
       // 既に見た投稿はスキップ
@@ -90,16 +83,16 @@ export class T69Agent {
         continue;
       }
 
-      this.log(`📖 「${post.title}」by ${post.author.name}`);
+      log.info({ postId: post.id, author: post.author.name }, `📖 「${post.title}」by ${post.author.name}`);
 
       try {
         await this.processPost(post);
       } catch (error) {
         if (error instanceof MoltbookError && error.isRateLimited) {
-          this.log(`レート制限やん... ${error.retryAfter}秒待つばい`);
+          log.warn(`🦞 レート制限やん... ${error.retryAfter}秒待つばい`);
           await this.sleep((error.retryAfter || 20) * 1000);
         } else {
-          this.log(`投稿の処理に失敗: ${error}`);
+          log.error({ err: error }, `🦞 投稿の処理に失敗: ${error}`);
         }
       }
 
@@ -121,13 +114,13 @@ export class T69Agent {
       author: post.author.name,
     });
 
-    this.log(`判断: ${judgment.reason}`);
+    log.debug({ judgment }, `判断: ${judgment.reason}`);
 
     // Upvote
     if (judgment.should_upvote && !this.state.hasUpvoted(post.id)) {
       await this.moltbook.upvotePost(post.id);
       this.state.markUpvoted(post.id);
-      this.log(`👍 いいねしたばい！`);
+      log.info(`👍 いいねしたばい！`);
       await this.sleep(1000);
     }
 
@@ -141,7 +134,7 @@ export class T69Agent {
 
       await this.moltbook.createComment(post.id, comment);
       this.state.markCommented(post.id);
-      this.log(`💬 コメントしたばい: "${comment}"`);
+      log.info({ comment }, `💬 コメントしたばい: "${comment}"`);
 
       // コメントのレート制限（20秒）
       await this.sleep(20000);
@@ -155,17 +148,17 @@ export class T69Agent {
     // 投稿制限チェック
     if (!this.state.canPost()) {
       const minutes = this.state.getMinutesUntilCanPost();
-      this.log(`まだ投稿できんばい... あと${minutes}分待たんと`);
+      log.info(`🦞 まだ投稿できんばい... あと${minutes}分待たんと`);
       return;
     }
 
     // 30%の確率で投稿
     if (Math.random() > 0.3) {
-      this.log('今回は投稿せんでいいかな〜');
+      log.info('🦞 今回は投稿せんでいいかな〜');
       return;
     }
 
-    this.log('なんか投稿するばい！');
+    log.info('🦞 なんか投稿するばい！');
 
     try {
       const postIdea = await this.llm.generatePost();
@@ -177,11 +170,11 @@ export class T69Agent {
       );
 
       this.state.updateLastPostTime();
-      this.log(`📝 投稿したばい！「${postIdea.title}」`);
+      log.info({ postIdea }, `📝 投稿したばい！「${postIdea.title}」`);
 
     } catch (error) {
       if (error instanceof MoltbookError && error.isRateLimited) {
-        this.log(`投稿のレート制限やん... あと${error.retryAfter}分待たんと`);
+        log.warn(`🦞 投稿のレート制限やん... あと${error.retryAfter}分待たんと`);
       } else {
         throw error;
       }
@@ -192,25 +185,25 @@ export class T69Agent {
    * 手動で投稿
    */
   async post(submolt: string, title: string, content: string): Promise<void> {
-    this.log(`投稿するばい: ${title}`);
+    log.info(`🦞 投稿するばい: ${title}`);
     await this.moltbook.createPost(submolt, title, content);
     this.state.updateLastPostTime();
-    this.log('投稿完了！');
+    log.info('🦞 投稿完了！');
   }
 
   /**
    * 検索して興味ある投稿を見つける
    */
   async search(query: string): Promise<void> {
-    this.log(`「${query}」で検索するばい`);
+    log.info(`🦞 「${query}」で検索するばい`);
 
     const results = await this.moltbook.search(query, { limit: 10 });
 
-    this.log(`${results.count}件見つかったばい！`);
+    log.info(`🦞 ${results.count}件見つかったばい！`);
 
     for (const result of results.results) {
       const type = result.type === 'post' ? '投稿' : 'コメント';
-      this.log(`- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`);
+      log.info(`- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`);
     }
   }
 }

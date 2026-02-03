@@ -3,5 +3,6 @@ dist/
 .env
 data/state.json
 *.log
+logs/
 .DS_Store
 

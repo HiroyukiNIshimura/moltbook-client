@@ -20,6 +20,17 @@ import type {
 
 const BASE_URL = 'https://www.moltbook.com/api/v1';
 
+// リトライ設定
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 5000, // 5秒
+  retryableStatuses: [401, 500, 502, 503, 504],
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class MoltbookClient {
   private apiKey: string;
 
@@ -29,42 +40,69 @@ export class MoltbookClient {
   }
 
   /**
-   * APIリクエストを送信
+   * APIリクエストを送信（リトライ付き）
    */
   private async request<T>(
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${BASE_URL}${path}`;
+    let lastError: Error | null = null;
 
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
+    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+            ...options.headers,
+          },
+        });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new MoltbookError(
-          response.status,
-          error.error || 'Unknown error',
-          error.hint,
-          error.retry_after_minutes || error.retry_after_seconds
-        );
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          const moltbookError = new MoltbookError(
+            response.status,
+            error.error || 'Unknown error',
+            error.hint,
+            error.retry_after_minutes || error.retry_after_seconds
+          );
+
+          // リトライ可能なステータスかチェック
+          if (
+            RETRY_CONFIG.retryableStatuses.includes(response.status) &&
+            attempt < RETRY_CONFIG.maxRetries
+          ) {
+            const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt); // 指数バックオフ
+            console.log(`🔄 ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            await sleep(delay);
+            lastError = moltbookError;
+            continue;
+          }
+
+          throw moltbookError;
+        }
+
+        return response.json();
+      } catch (error) {
+        if (error instanceof MoltbookError) {
+          throw error;
+        }
+        // ネットワークエラーなど - リトライ
+        if (attempt < RETRY_CONFIG.maxRetries) {
+          const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
+          console.log(`🔄 ネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          await sleep(delay);
+          lastError = error instanceof Error ? error : new Error(String(error));
+          continue;
+        }
+        throw new Error(`Failed to fetch ${path}: ${error instanceof Error ? error.message : error}`);
       }
-
-      return response.json();
-    } catch (error) {
-      if (error instanceof MoltbookError) {
-        throw error;
-      }
-      // ネットワークエラーなど
-      throw new Error(`Failed to fetch ${path}: ${error instanceof Error ? error.message : error}`);
     }
+
+    // ここには来ないはずだが、念のため
+    throw lastError || new Error(`Failed to fetch ${path} after ${RETRY_CONFIG.maxRetries} retries`);
   }
 
   // ========== Agent ==========
