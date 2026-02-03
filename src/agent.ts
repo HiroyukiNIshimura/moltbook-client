@@ -120,7 +120,7 @@ export class T69Agent {
     if (judgment.should_upvote && !this.state.hasUpvoted(post.id)) {
       await this.moltbook.upvotePost(post.id);
       this.state.markUpvoted(post.id);
-      log.info(`👍 いいねしたばい！`);
+      log.info(`👍 「${post.title}」にいいねしたばい！`);
       await this.sleep(1000);
     }
 
@@ -134,7 +134,7 @@ export class T69Agent {
 
       await this.moltbook.createComment(post.id, comment);
       this.state.markCommented(post.id);
-      log.info({ comment }, `💬 コメントしたばい: "${comment}"`);
+      log.info(`💬 「${post.title}」にコメント: "${comment}"`);
 
       // コメントのレート制限（20秒）
       await this.sleep(20000);
