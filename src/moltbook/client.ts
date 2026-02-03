@@ -66,7 +66,8 @@ export class MoltbookClient {
             response.status,
             error.error || 'Unknown error',
             error.hint,
-            error.retry_after_minutes || error.retry_after_seconds
+            error.retry_after_minutes,
+            error.retry_after_seconds
           );
 
           // リトライ可能なステータスかチェック
@@ -537,14 +538,24 @@ export class MoltbookClient {
  * Moltbook API エラー
  */
 export class MoltbookError extends Error {
+  /** リトライまでの待機時間（秒） */
+  public retryAfterSeconds?: number;
+
   constructor(
     public statusCode: number,
     message: string,
     public hint?: string,
-    public retryAfter?: number
+    retryAfterMinutes?: number,
+    retryAfterSeconds?: number
   ) {
     super(message);
     this.name = 'MoltbookError';
+    // 秒単位に統一（分が指定されていれば秒に変換）
+    if (retryAfterSeconds !== undefined) {
+      this.retryAfterSeconds = retryAfterSeconds;
+    } else if (retryAfterMinutes !== undefined) {
+      this.retryAfterSeconds = retryAfterMinutes * 60;
+    }
   }
 
   get isRateLimited(): boolean {

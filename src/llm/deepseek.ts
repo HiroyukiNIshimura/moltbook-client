@@ -26,6 +26,17 @@ interface ChatResponse {
   };
 }
 
+// リトライ設定
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 2000,
+  retryableStatuses: [429, 500, 502, 503, 504],
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class DeepSeekClient {
   private apiKey: string;
   private baseUrl = 'https://api.deepseek.com/v1';
@@ -36,33 +47,75 @@ export class DeepSeekClient {
   }
 
   /**
-   * チャット補完を実行
+   * チャット補完を実行（リトライ付き）
    */
   async chat(
     messages: ChatMessage[],
     options: { temperature?: number; maxTokens?: number } = {}
   ): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        temperature: options.temperature ?? 0.8,
-        max_tokens: options.maxTokens ?? 500,
-      }),
-    });
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`DeepSeek API error: ${error.error?.message || response.statusText}`);
+    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+      try {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages,
+            temperature: options.temperature ?? 0.8,
+            max_tokens: options.maxTokens ?? 500,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          const errorMsg = `DeepSeek API error: ${error.error?.message || response.statusText}`;
+
+          // リトライ可能なステータスかチェック
+          if (
+            RETRY_CONFIG.retryableStatuses.includes(response.status) &&
+            attempt < RETRY_CONFIG.maxRetries
+          ) {
+            const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
+            console.log(`🔄 DeepSeek ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            await sleep(delay);
+            lastError = new Error(errorMsg);
+            continue;
+          }
+
+          throw new Error(errorMsg);
+        }
+
+        const data: ChatResponse = await response.json();
+
+        // 空のchoicesをチェック
+        if (!data.choices || data.choices.length === 0 || !data.choices[0]?.message?.content) {
+          throw new Error('DeepSeek API returned empty response');
+        }
+
+        return data.choices[0].message.content;
+
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('DeepSeek API')) {
+          throw error;
+        }
+        // ネットワークエラー - リトライ
+        if (attempt < RETRY_CONFIG.maxRetries) {
+          const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
+          console.log(`🔄 DeepSeekネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          await sleep(delay);
+          lastError = error instanceof Error ? error : new Error(String(error));
+          continue;
+        }
+        throw error;
+      }
     }
 
-    const data: ChatResponse = await response.json();
-    return data.choices[0]?.message?.content || '';
+    throw lastError || new Error('DeepSeek API request failed after retries');
   }
 
   /**
@@ -81,10 +134,14 @@ export class DeepSeekClient {
                       text.match(/(\{[\s\S]*\})/);
 
     if (!jsonMatch) {
-      throw new Error(`Failed to parse JSON from response: ${text}`);
+      throw new Error(`Failed to extract JSON from response: ${text.slice(0, 200)}`);
     }
 
-    return JSON.parse(jsonMatch[1]);
+    try {
+      return JSON.parse(jsonMatch[1]);
+    } catch (parseError) {
+      throw new Error(`Failed to parse JSON: ${parseError instanceof Error ? parseError.message : parseError}. Raw: ${jsonMatch[1].slice(0, 200)}`);
+    }
   }
 
   /**

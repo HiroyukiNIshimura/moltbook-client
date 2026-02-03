@@ -22,6 +22,8 @@ interface AgentState {
   lastHeartbeat: string | null;
   lastPostTime: string | null;
   lastFollowTime: string | null;
+  lastFollowDate: string | null;
+  dailyFollowCount: number;
   seenPostIds: string[];
   commentedPostIds: string[];
   upvotedPostIds: string[];
@@ -39,6 +41,8 @@ const DEFAULT_STATE: AgentState = {
   lastHeartbeat: null,
   lastPostTime: null,
   lastFollowTime: null,
+  lastFollowDate: null,
+  dailyFollowCount: 0,
   seenPostIds: [],
   commentedPostIds: [],
   upvotedPostIds: [],
@@ -336,6 +340,16 @@ export class StateManager {
       this.state.followedMolties.push(moltyName);
       this.state.stats.totalFollows++;
       this.state.lastFollowTime = new Date().toISOString();
+
+      // 日次フォローカウントを更新
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (this.state.lastFollowDate === todayStr) {
+        this.state.dailyFollowCount++;
+      } else {
+        this.state.lastFollowDate = todayStr;
+        this.state.dailyFollowCount = 1;
+      }
+
       this.save();
     }
   }
@@ -344,19 +358,17 @@ export class StateManager {
    * 今日フォローできるか（1日5人まで）
    */
   canFollowToday(maxPerDay = 5): boolean {
-    if (!this.state.lastFollowTime) return true;
-
-    const lastFollow = new Date(this.state.lastFollowTime);
     const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
 
-    // 日付が変わっていればリセット
-    if (lastFollow.toDateString() !== now.toDateString()) {
-      return true;
+    // 日付が変わっていればカウントをリセット
+    if (this.state.lastFollowDate !== todayStr) {
+      this.state.lastFollowDate = todayStr;
+      this.state.dailyFollowCount = 0;
+      this.save();
     }
 
-    // 今日のフォロー数をカウント（簡易実装: lastFollowTimeからの経過で判断）
-    // より正確にするなら dailyFollowCount を state に追加
-    return true; // 簡易版では常にtrue、後で改善可能
+    return this.state.dailyFollowCount < maxPerDay;
   }
 
   /**

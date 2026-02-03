@@ -14,12 +14,22 @@ export class T69Agent {
   private moltbook: MoltbookClient;
   private llm: DeepSeekClient;
   private state: StateManager;
-  private agentName = 'T-69';
+  private agentName: string | null = null;
 
   constructor(moltbookKey: string, deepseekKey: string, statePath = './data/state.json') {
     this.moltbook = new MoltbookClient(moltbookKey);
     this.llm = new DeepSeekClient(deepseekKey);
     this.state = new StateManager(statePath);
+  }
+
+  /**
+   * エージェント名を取得（キャッシュ付き）
+   */
+  private async getAgentName(): Promise<string> {
+    if (this.agentName) return this.agentName;
+    const me = await this.moltbook.getMe();
+    this.agentName = me.agent.name;
+    return this.agentName;
   }
 
   /**
@@ -95,8 +105,9 @@ export class T69Agent {
         await this.processPost(post);
       } catch (error) {
         if (error instanceof MoltbookError && error.isRateLimited) {
-          log.warn(`🦞 レート制限やん... ${error.retryAfter}秒待つばい`);
-          await this.sleep((error.retryAfter || 20) * 1000);
+          const waitSec = error.retryAfterSeconds || 20;
+          log.warn(`🦞 レート制限やん... ${waitSec}秒待つばい`);
+          await this.sleep(waitSec * 1000);
         } else {
           log.error({ err: error }, `🦞 投稿の処理に失敗: ${error}`);
         }
@@ -116,8 +127,9 @@ export class T69Agent {
     log.info('🦞 リプライをチェックするばい〜');
 
     try {
+      const myName = await this.getAgentName();
       // 自分のプロフィールから最近の投稿を取得
-      const profile = await this.moltbook.getProfile(this.agentName);
+      const profile = await this.moltbook.getProfile(myName);
       const myPosts = profile.recentPosts || [];
 
       if (myPosts.length === 0) {
@@ -138,7 +150,7 @@ export class T69Agent {
 
           for (const comment of comments) {
             // 自分のコメントはスキップ
-            if (comment.author.name === this.agentName) continue;
+            if (comment.author.name === myName) continue;
 
             // 既に記録済みのコメントはスキップ
             const commentKey = `reply:${comment.id}`;
@@ -179,6 +191,8 @@ export class T69Agent {
    * 投稿を処理（判断→反応）
    */
   private async processPost(post: Post): Promise<void> {
+    const myName = await this.getAgentName();
+
     // LLMに判断させる
     const judgment = await this.llm.judgePost({
       title: post.title,
@@ -189,7 +203,7 @@ export class T69Agent {
     log.debug({ judgment }, `判断: ${judgment.reason}`);
 
     // 同じSubmoltでの活動を記録（自分以外）
-    if (post.author.name !== this.agentName) {
+    if (post.author.name !== myName) {
       this.state.recordSameSubmoltActivity(post.author.name);
     }
 
@@ -198,7 +212,7 @@ export class T69Agent {
       await this.moltbook.upvotePost(post.id);
       this.state.markUpvoted(post.id);
       // 親密度を記録（自分以外）
-      if (post.author.name !== this.agentName) {
+      if (post.author.name !== myName) {
         this.state.recordUpvotedPost(post.author.name);
       }
       // 詳細ログ
@@ -232,7 +246,7 @@ export class T69Agent {
       await this.moltbook.createComment(post.id, comment);
       this.state.markCommented(post.id);
       // 親密度を記録（自分以外）
-      if (post.author.name !== this.agentName) {
+      if (post.author.name !== myName) {
         this.state.recordRepliedTo(post.author.name);
       }
       log.info(`💬 「${post.title}」にコメント: "${comment}"`);
@@ -275,7 +289,8 @@ export class T69Agent {
 
     } catch (error) {
       if (error instanceof MoltbookError && error.isRateLimited) {
-        log.warn(`🦞 投稿のレート制限やん... あと${error.retryAfter}分待たんと`);
+        const waitMin = Math.ceil((error.retryAfterSeconds || 60) / 60);
+        log.warn(`🦞 投稿のレート制限やん... あと${waitMin}分待たんと`);
       } else {
         throw error;
       }
@@ -306,12 +321,13 @@ export class T69Agent {
     log.info(`🦞 フォロー候補が${candidates.length}人おるばい！`);
 
     let followedCount = 0;
+    const myName = await this.getAgentName();
 
     for (const candidate of candidates) {
       if (followedCount >= MAX_FOLLOWS_PER_HEARTBEAT) break;
 
       // 自分自身はスキップ
-      if (candidate.name === this.agentName) continue;
+      if (candidate.name === myName) continue;
 
       const score = this.state.calculateAffinityScore(candidate.name);
 
