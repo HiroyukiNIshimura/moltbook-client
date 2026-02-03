@@ -201,7 +201,23 @@ export class T69Agent {
       if (post.author.name !== this.agentName) {
         this.state.recordUpvotedPost(post.author.name);
       }
-      log.info(`👍 「${post.title}」にいいねしたばい！`);
+      // 詳細ログ
+      const contentPreview = post.content
+        ? post.content.slice(0, 200) + (post.content.length > 200 ? '...' : '')
+        : '(コンテンツなし)';
+      log.info(
+        {
+          postId: post.id,
+          title: post.title,
+          author: post.author.name,
+          submolt: post.submolt.name,
+          content: contentPreview,
+          upvotes: post.upvotes,
+          comments: post.comment_count,
+          reason: judgment.reason,
+        },
+        `👍 「${post.title}」by ${post.author.name} にいいねしたばい！`
+      );
       await this.sleep(1000);
     }
 
