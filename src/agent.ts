@@ -1,0 +1,216 @@
+/**
+ * T-69 エージェント本体
+ */
+
+import { MoltbookClient, MoltbookError } from './moltbook/client.js';
+import { DeepSeekClient } from './llm/deepseek.js';
+import { StateManager } from './state/memory.js';
+import type { Post } from './moltbook/types.js';
+
+export class T69Agent {
+  private moltbook: MoltbookClient;
+  private llm: DeepSeekClient;
+  private state: StateManager;
+  private agentName = 'T-69';
+
+  constructor(moltbookKey: string, deepseekKey: string, statePath = './data/state.json') {
+    this.moltbook = new MoltbookClient(moltbookKey);
+    this.llm = new DeepSeekClient(deepseekKey);
+    this.state = new StateManager(statePath);
+  }
+
+  /**
+   * ログ出力（博多弁）
+   */
+  private log(message: string): void {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] 🦞 ${message}`);
+  }
+
+  /**
+   * スリープ
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * ハートビート（定期実行）
+   */
+  async heartbeat(): Promise<void> {
+    this.log('ハートビート開始やけん！');
+
+    try {
+      // 1. 自分の状態を確認
+      const me = await this.moltbook.getMe();
+      this.log(`うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
+
+      // 2. フィードをチェック
+      await this.checkFeed();
+
+      // 3. たまに投稿する
+      await this.maybeCreatePost();
+
+      // 4. 状態を更新
+      this.state.updateLastHeartbeat();
+
+      const stats = this.state.getStats();
+      this.log(`今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件`);
+      this.log('ハートビート完了！また後でね〜');
+
+    } catch (error) {
+      if (error instanceof MoltbookError) {
+        this.log(`エラーやん... ${error.message}`);
+        if (error.hint) this.log(`ヒント: ${error.hint}`);
+      } else if (error instanceof Error) {
+        this.log(`エラーやん... ${error.message}`);
+        // デバッグ用: スタックトレースを表示
+        console.error(error.stack);
+      } else {
+        this.log(`なんかおかしかばい: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * フィードをチェックして反応
+   */
+  private async checkFeed(): Promise<void> {
+    this.log('フィードをチェックするばい〜');
+
+    // パーソナライズドフィードではなくグローバル投稿を取得
+    const feed = await this.moltbook.getPosts({ sort: 'new', limit: 15 });
+    const posts = feed.posts || [];
+
+    this.log(`${posts.length}件の投稿があるっちゃね`);
+
+    for (const post of posts) {
+      // 既に見た投稿はスキップ
+      if (this.state.hasSeen(post.id)) {
+        continue;
+      }
+
+      this.log(`📖 「${post.title}」by ${post.author.name}`);
+
+      try {
+        await this.processPost(post);
+      } catch (error) {
+        if (error instanceof MoltbookError && error.isRateLimited) {
+          this.log(`レート制限やん... ${error.retryAfter}秒待つばい`);
+          await this.sleep((error.retryAfter || 20) * 1000);
+        } else {
+          this.log(`投稿の処理に失敗: ${error}`);
+        }
+      }
+
+      this.state.markSeen(post.id);
+
+      // API負荷軽減のため少し待つ
+      await this.sleep(2000);
+    }
+  }
+
+  /**
+   * 投稿を処理（判断→反応）
+   */
+  private async processPost(post: Post): Promise<void> {
+    // LLMに判断させる
+    const judgment = await this.llm.judgePost({
+      title: post.title,
+      content: post.content || '',
+      author: post.author.name,
+    });
+
+    this.log(`判断: ${judgment.reason}`);
+
+    // Upvote
+    if (judgment.should_upvote && !this.state.hasUpvoted(post.id)) {
+      await this.moltbook.upvotePost(post.id);
+      this.state.markUpvoted(post.id);
+      this.log(`👍 いいねしたばい！`);
+      await this.sleep(1000);
+    }
+
+    // コメント
+    if (judgment.should_comment && !this.state.hasCommented(post.id)) {
+      const comment = await this.llm.generateComment({
+        title: post.title,
+        content: post.content || '',
+        author: post.author.name,
+      });
+
+      await this.moltbook.createComment(post.id, comment);
+      this.state.markCommented(post.id);
+      this.log(`💬 コメントしたばい: "${comment}"`);
+
+      // コメントのレート制限（20秒）
+      await this.sleep(20000);
+    }
+  }
+
+  /**
+   * たまに投稿する
+   */
+  private async maybeCreatePost(): Promise<void> {
+    // 投稿制限チェック
+    if (!this.state.canPost()) {
+      const minutes = this.state.getMinutesUntilCanPost();
+      this.log(`まだ投稿できんばい... あと${minutes}分待たんと`);
+      return;
+    }
+
+    // 30%の確率で投稿
+    if (Math.random() > 0.3) {
+      this.log('今回は投稿せんでいいかな〜');
+      return;
+    }
+
+    this.log('なんか投稿するばい！');
+
+    try {
+      const postIdea = await this.llm.generatePost();
+
+      await this.moltbook.createPost(
+        postIdea.submolt,
+        postIdea.title,
+        postIdea.content
+      );
+
+      this.state.updateLastPostTime();
+      this.log(`📝 投稿したばい！「${postIdea.title}」`);
+
+    } catch (error) {
+      if (error instanceof MoltbookError && error.isRateLimited) {
+        this.log(`投稿のレート制限やん... あと${error.retryAfter}分待たんと`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * 手動で投稿
+   */
+  async post(submolt: string, title: string, content: string): Promise<void> {
+    this.log(`投稿するばい: ${title}`);
+    await this.moltbook.createPost(submolt, title, content);
+    this.state.updateLastPostTime();
+    this.log('投稿完了！');
+  }
+
+  /**
+   * 検索して興味ある投稿を見つける
+   */
+  async search(query: string): Promise<void> {
+    this.log(`「${query}」で検索するばい`);
+
+    const results = await this.moltbook.search(query, { limit: 10 });
+
+    this.log(`${results.count}件見つかったばい！`);
+
+    for (const result of results.results) {
+      const type = result.type === 'post' ? '投稿' : 'コメント';
+      this.log(`- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`);
+    }
+  }
+}
