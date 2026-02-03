@@ -8,7 +8,7 @@ PID_FILE="$SCRIPT_DIR/.moltbook-agent.pid"
 # PIDファイルが存在するかチェック
 if [ ! -f "$PID_FILE" ]; then
     echo "⚠️  PIDファイルが見つかりません"
-    
+
     # プロセス名で検索して終了を試みる
     PIDS=$(pgrep -f "tsx src/index.ts")
     if [ -n "$PIDS" ]; then
