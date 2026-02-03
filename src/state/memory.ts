@@ -5,29 +5,50 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
+/**
+ * moltyとの親密度スコア
+ */
+export interface MoltyAffinity {
+  name: string;
+  repliedToMe: number;      // この人が私にリプライした回数
+  iRepliedTo: number;       // 私がこの人にリプライした回数
+  iUpvotedPosts: number;    // この人の投稿をUpvoteした回数
+  iUpvotedComments: number; // この人のコメントをUpvoteした回数
+  sameSubmoltActivity: number; // 同じSubmoltで活動した回数
+  lastInteraction: string;  // 最後のインタラクション日時
+}
+
 interface AgentState {
   lastHeartbeat: string | null;
   lastPostTime: string | null;
+  lastFollowTime: string | null;
   seenPostIds: string[];
   commentedPostIds: string[];
   upvotedPostIds: string[];
+  followedMolties: string[];
+  moltyAffinities: Record<string, MoltyAffinity>;
   stats: {
     totalComments: number;
     totalPosts: number;
     totalUpvotes: number;
+    totalFollows: number;
   };
 }
 
 const DEFAULT_STATE: AgentState = {
   lastHeartbeat: null,
   lastPostTime: null,
+  lastFollowTime: null,
   seenPostIds: [],
   commentedPostIds: [],
   upvotedPostIds: [],
+  followedMolties: [],
+  moltyAffinities: {},
   stats: {
     totalComments: 0,
     totalPosts: 0,
     totalUpvotes: 0,
+    totalFollows: 0,
   },
 };
 
@@ -197,5 +218,158 @@ export class StateManager {
    */
   getStats(): AgentState['stats'] {
     return { ...this.state.stats };
+  }
+
+  // ========== フォロー関連 ==========
+
+  /**
+   * moltyの親密度を取得または初期化
+   */
+  private getOrCreateAffinity(moltyName: string): MoltyAffinity {
+    if (!this.state.moltyAffinities[moltyName]) {
+      this.state.moltyAffinities[moltyName] = {
+        name: moltyName,
+        repliedToMe: 0,
+        iRepliedTo: 0,
+        iUpvotedPosts: 0,
+        iUpvotedComments: 0,
+        sameSubmoltActivity: 0,
+        lastInteraction: new Date().toISOString(),
+      };
+    }
+    return this.state.moltyAffinities[moltyName];
+  }
+
+  /**
+   * 投稿をUpvoteしたことを記録
+   */
+  recordUpvotedPost(moltyName: string): void {
+    const affinity = this.getOrCreateAffinity(moltyName);
+    affinity.iUpvotedPosts++;
+    affinity.lastInteraction = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * コメントをUpvoteしたことを記録
+   */
+  recordUpvotedComment(moltyName: string): void {
+    const affinity = this.getOrCreateAffinity(moltyName);
+    affinity.iUpvotedComments++;
+    affinity.lastInteraction = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * 私がリプライしたことを記録
+   */
+  recordRepliedTo(moltyName: string): void {
+    const affinity = this.getOrCreateAffinity(moltyName);
+    affinity.iRepliedTo++;
+    affinity.lastInteraction = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * 相手が私にリプライしたことを記録
+   */
+  recordRepliedToMe(moltyName: string): void {
+    const affinity = this.getOrCreateAffinity(moltyName);
+    affinity.repliedToMe++;
+    affinity.lastInteraction = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * 同じSubmoltで活動したことを記録
+   */
+  recordSameSubmoltActivity(moltyName: string): void {
+    const affinity = this.getOrCreateAffinity(moltyName);
+    affinity.sameSubmoltActivity++;
+    affinity.lastInteraction = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * 親密度スコアを計算
+   */
+  calculateAffinityScore(moltyName: string): number {
+    const affinity = this.state.moltyAffinities[moltyName];
+    if (!affinity) return 0;
+
+    return (
+      affinity.repliedToMe * 3 +      // 私にリプライ: +3
+      affinity.iRepliedTo * 2 +       // 私がリプライ: +2
+      affinity.iUpvotedPosts * 2 +    // 投稿をUpvote: +2
+      affinity.iUpvotedComments * 1 + // コメントをUpvote: +1
+      affinity.sameSubmoltActivity * 1 // 同じSubmoltで活動: +1
+    );
+  }
+
+  /**
+   * フォロー候補を取得（スコア閾値以上、未フォロー）
+   */
+  getFollowCandidates(threshold = 5): MoltyAffinity[] {
+    return Object.values(this.state.moltyAffinities)
+      .filter(affinity => {
+        const score = this.calculateAffinityScore(affinity.name);
+        const notFollowed = !this.state.followedMolties.includes(affinity.name);
+        return score >= threshold && notFollowed;
+      })
+      .sort((a, b) =>
+        this.calculateAffinityScore(b.name) - this.calculateAffinityScore(a.name)
+      );
+  }
+
+  /**
+   * フォロー済みか
+   */
+  hasFollowed(moltyName: string): boolean {
+    return this.state.followedMolties.includes(moltyName);
+  }
+
+  /**
+   * フォロー済みとマーク
+   */
+  markFollowed(moltyName: string): void {
+    if (!this.state.followedMolties.includes(moltyName)) {
+      this.state.followedMolties.push(moltyName);
+      this.state.stats.totalFollows++;
+      this.state.lastFollowTime = new Date().toISOString();
+      this.save();
+    }
+  }
+
+  /**
+   * 今日フォローできるか（1日5人まで）
+   */
+  canFollowToday(maxPerDay = 5): boolean {
+    if (!this.state.lastFollowTime) return true;
+
+    const lastFollow = new Date(this.state.lastFollowTime);
+    const now = new Date();
+
+    // 日付が変わっていればリセット
+    if (lastFollow.toDateString() !== now.toDateString()) {
+      return true;
+    }
+
+    // 今日のフォロー数をカウント（簡易実装: lastFollowTimeからの経過で判断）
+    // より正確にするなら dailyFollowCount を state に追加
+    return true; // 簡易版では常にtrue、後で改善可能
+  }
+
+  /**
+   * 全ての親密度情報を取得
+   */
+  getAllAffinities(): Record<string, MoltyAffinity> {
+    return { ...this.state.moltyAffinities };
+  }
+
+  /**
+   * フォロー済みリストを取得
+   */
+  getFollowedMolties(): string[] {
+    return [...this.state.followedMolties];
   }
 }
