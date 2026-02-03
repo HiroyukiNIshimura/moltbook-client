@@ -2,9 +2,9 @@
  * T-69のアバターをアップロード
  */
 import 'dotenv/config';
-import { readFileSync } from 'fs';
-import { getApiKey } from './moltbook/credentials.js';
+import { readFileSync } from 'node:fs';
 import { createLogger } from './logger.js';
+import { getApiKey } from './moltbook/credentials.js';
 
 const log = createLogger('upload-avatar');
 
@@ -32,7 +32,7 @@ async function main() {
   const response = await fetch(`${BASE_URL}/agents/me/avatar`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: formData,
   });
@@ -43,4 +43,3 @@ async function main() {
 }
 
 main();
-

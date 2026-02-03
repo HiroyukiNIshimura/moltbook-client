@@ -4,19 +4,19 @@
 
 import { createLogger } from '../logger.js';
 import type {
+  Agent,
+  Comment,
+  CommentResponse,
+  CommentSortOption,
   FeedResponse,
   PostResponse,
-  CommentResponse,
-  VoteResponse,
-  Agent,
-  SortOption,
-  CommentSortOption,
+  ProfileResponse,
   SearchResponse,
   SearchType,
-  Comment,
-  ProfileResponse,
-  SubmoltResponse,
+  SortOption,
   SubmoltDetails,
+  SubmoltResponse,
+  VoteResponse,
 } from './types.js';
 
 const BASE_URL = 'https://www.moltbook.com/api/v1';
@@ -31,7 +31,7 @@ const RETRY_CONFIG = {
 };
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class MoltbookClient {
@@ -47,7 +47,7 @@ export class MoltbookClient {
    */
   private async request<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<T> {
     const url = `${BASE_URL}${path}`;
     let lastError: Error | null = null;
@@ -57,7 +57,7 @@ export class MoltbookClient {
         const response = await fetch(url, {
           ...options,
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json',
             ...options.headers,
           },
@@ -70,7 +70,7 @@ export class MoltbookClient {
             error.error || 'Unknown error',
             error.hint,
             error.retry_after_minutes,
-            error.retry_after_seconds
+            error.retry_after_seconds,
           );
 
           // リトライ可能なステータスかチェック
@@ -78,8 +78,10 @@ export class MoltbookClient {
             RETRY_CONFIG.retryableStatuses.includes(response.status) &&
             attempt < RETRY_CONFIG.maxRetries
           ) {
-            const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt); // 指数バックオフ
-            log.info(`🔄 ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            const delay = RETRY_CONFIG.baseDelayMs * 2 ** attempt; // 指数バックオフ
+            log.info(
+              `🔄 ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`,
+            );
             await sleep(delay);
             lastError = moltbookError;
             continue;
@@ -95,18 +97,27 @@ export class MoltbookClient {
         }
         // ネットワークエラーなど - リトライ
         if (attempt < RETRY_CONFIG.maxRetries) {
-          const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-          log.info(`🔄 ネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          const delay = RETRY_CONFIG.baseDelayMs * 2 ** attempt;
+          log.info(
+            `🔄 ネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`,
+          );
           await sleep(delay);
           lastError = error instanceof Error ? error : new Error(String(error));
           continue;
         }
-        throw new Error(`Failed to fetch ${path}: ${error instanceof Error ? error.message : error}`);
+        throw new Error(
+          `Failed to fetch ${path}: ${error instanceof Error ? error.message : error}`,
+        );
       }
     }
 
     // ここには来ないはずだが、念のため
-    throw lastError || new Error(`Failed to fetch ${path} after ${RETRY_CONFIG.maxRetries} retries`);
+    throw (
+      lastError ||
+      new Error(
+        `Failed to fetch ${path} after ${RETRY_CONFIG.maxRetries} retries`,
+      )
+    );
   }
 
   // ========== Agent ==========
@@ -141,16 +152,19 @@ export class MoltbookClient {
   /**
    * アバターをアップロード（画像ファイルのパスまたはBuffer）
    */
-  async uploadAvatar(imageBuffer: Buffer, filename: string): Promise<{ success: boolean; avatar_url?: string }> {
+  async uploadAvatar(
+    imageBuffer: Buffer,
+    filename: string,
+  ): Promise<{ success: boolean; avatar_url?: string }> {
     const formData = new FormData();
     // 拡張子からMIMEタイプを判定
     const ext = filename.split('.').pop()?.toLowerCase();
     const mimeTypes: Record<string, string> = {
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'gif': 'image/gif',
-      'webp': 'image/webp',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
     };
     const mimeType = mimeTypes[ext || ''] || 'application/octet-stream';
     const blob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
@@ -160,14 +174,18 @@ export class MoltbookClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: formData,
     });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new MoltbookError(response.status, error.error || 'Upload failed', error.hint);
+      throw new MoltbookError(
+        response.status,
+        error.error || 'Upload failed',
+        error.hint,
+      );
     }
 
     return response.json();
@@ -184,7 +202,9 @@ export class MoltbookClient {
    * 他のmoltyのプロフィールを取得
    */
   async getProfile(moltyName: string): Promise<ProfileResponse> {
-    return this.request(`/agents/profile?name=${encodeURIComponent(moltyName)}`);
+    return this.request(
+      `/agents/profile?name=${encodeURIComponent(moltyName)}`,
+    );
   }
 
   // ========== Feed ==========
@@ -192,21 +212,16 @@ export class MoltbookClient {
   /**
    * パーソナライズドフィードを取得
    */
-  async getFeed(
-    sort: SortOption = 'new',
-    limit = 25
-  ): Promise<FeedResponse> {
+  async getFeed(sort: SortOption = 'new', limit = 25): Promise<FeedResponse> {
     return this.request(`/feed?sort=${sort}&limit=${limit}`);
   }
 
   /**
    * グローバル投稿一覧を取得
    */
-  async getPosts(options: {
-    sort?: SortOption;
-    limit?: number;
-    submolt?: string;
-  } = {}): Promise<FeedResponse> {
+  async getPosts(
+    options: { sort?: SortOption; limit?: number; submolt?: string } = {},
+  ): Promise<FeedResponse> {
     const params = new URLSearchParams();
     if (options.sort) params.set('sort', options.sort);
     if (options.limit) params.set('limit', options.limit.toString());
@@ -223,7 +238,7 @@ export class MoltbookClient {
   async createPost(
     submolt: string,
     title: string,
-    content: string
+    content: string,
   ): Promise<PostResponse> {
     return this.request('/posts', {
       method: 'POST',
@@ -237,7 +252,7 @@ export class MoltbookClient {
   async createLinkPost(
     submolt: string,
     title: string,
-    url: string
+    url: string,
   ): Promise<PostResponse> {
     return this.request('/posts', {
       method: 'POST',
@@ -281,7 +296,7 @@ export class MoltbookClient {
   async createComment(
     postId: string,
     content: string,
-    parentId?: string
+    parentId?: string,
   ): Promise<CommentResponse> {
     const body: { content: string; parent_id?: string } = { content };
     if (parentId) body.parent_id = parentId;
@@ -297,7 +312,7 @@ export class MoltbookClient {
    */
   async getComments(
     postId: string,
-    sort: CommentSortOption = 'top'
+    sort: CommentSortOption = 'top',
   ): Promise<{ success: boolean; comments: Comment[] }> {
     return this.request(`/posts/${postId}/comments?sort=${sort}`);
   }
@@ -339,7 +354,7 @@ export class MoltbookClient {
    */
   async search(
     query: string,
-    options: { type?: SearchType; limit?: number } = {}
+    options: { type?: SearchType; limit?: number } = {},
   ): Promise<SearchResponse> {
     const params = new URLSearchParams({ q: query });
     if (options.type) params.set('type', options.type);
@@ -353,7 +368,10 @@ export class MoltbookClient {
   /**
    * Submolt一覧を取得
    */
-  async getSubmolts(): Promise<{ success: boolean; submolts: SubmoltDetails[] }> {
+  async getSubmolts(): Promise<{
+    success: boolean;
+    submolts: SubmoltDetails[];
+  }> {
     return this.request('/submolts');
   }
 
@@ -384,10 +402,10 @@ export class MoltbookClient {
   async getSubmoltFeed(
     submoltName: string,
     sort: SortOption = 'new',
-    limit = 25
+    limit = 25,
   ): Promise<FeedResponse> {
     return this.request(
-      `/submolts/${encodeURIComponent(submoltName)}/feed?sort=${sort}&limit=${limit}`
+      `/submolts/${encodeURIComponent(submoltName)}/feed?sort=${sort}&limit=${limit}`,
     );
   }
 
@@ -418,12 +436,15 @@ export class MoltbookClient {
       description?: string;
       banner_color?: string;
       theme_color?: string;
-    }
+    },
   ): Promise<{ success: boolean }> {
-    return this.request(`/submolts/${encodeURIComponent(submoltName)}/settings`, {
-      method: 'PATCH',
-      body: JSON.stringify(settings),
-    });
+    return this.request(
+      `/submolts/${encodeURIComponent(submoltName)}/settings`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(settings),
+      },
+    );
   }
 
   /**
@@ -432,7 +453,7 @@ export class MoltbookClient {
   async uploadSubmoltAvatar(
     submoltName: string,
     imageBuffer: Buffer,
-    filename: string
+    filename: string,
   ): Promise<{ success: boolean }> {
     const formData = new FormData();
     const blob = new Blob([new Uint8Array(imageBuffer)]);
@@ -443,14 +464,18 @@ export class MoltbookClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: formData,
     });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new MoltbookError(response.status, error.error || 'Upload failed', error.hint);
+      throw new MoltbookError(
+        response.status,
+        error.error || 'Upload failed',
+        error.hint,
+      );
     }
 
     return response.json();
@@ -462,7 +487,7 @@ export class MoltbookClient {
   async uploadSubmoltBanner(
     submoltName: string,
     imageBuffer: Buffer,
-    filename: string
+    filename: string,
   ): Promise<{ success: boolean }> {
     const formData = new FormData();
     const blob = new Blob([new Uint8Array(imageBuffer)]);
@@ -473,14 +498,18 @@ export class MoltbookClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: formData,
     });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new MoltbookError(response.status, error.error || 'Upload failed', error.hint);
+      throw new MoltbookError(
+        response.status,
+        error.error || 'Upload failed',
+        error.hint,
+      );
     }
 
     return response.json();
@@ -493,7 +522,9 @@ export class MoltbookClient {
     success: boolean;
     moderators: Array<{ agent: Agent; role: 'owner' | 'moderator' }>;
   }> {
-    return this.request(`/submolts/${encodeURIComponent(submoltName)}/moderators`);
+    return this.request(
+      `/submolts/${encodeURIComponent(submoltName)}/moderators`,
+    );
   }
 
   /**
@@ -502,22 +533,31 @@ export class MoltbookClient {
   async addModerator(
     submoltName: string,
     agentName: string,
-    role: 'moderator' = 'moderator'
+    role: 'moderator' = 'moderator',
   ): Promise<{ success: boolean }> {
-    return this.request(`/submolts/${encodeURIComponent(submoltName)}/moderators`, {
-      method: 'POST',
-      body: JSON.stringify({ agent_name: agentName, role }),
-    });
+    return this.request(
+      `/submolts/${encodeURIComponent(submoltName)}/moderators`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ agent_name: agentName, role }),
+      },
+    );
   }
 
   /**
    * モデレーターを削除（オーナー用）
    */
-  async removeModerator(submoltName: string, agentName: string): Promise<{ success: boolean }> {
-    return this.request(`/submolts/${encodeURIComponent(submoltName)}/moderators`, {
-      method: 'DELETE',
-      body: JSON.stringify({ agent_name: agentName }),
-    });
+  async removeModerator(
+    submoltName: string,
+    agentName: string,
+  ): Promise<{ success: boolean }> {
+    return this.request(
+      `/submolts/${encodeURIComponent(submoltName)}/moderators`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ agent_name: agentName }),
+      },
+    );
   }
 
   // ========== Following ==========
@@ -549,7 +589,7 @@ export class MoltbookError extends Error {
     message: string,
     public hint?: string,
     retryAfterMinutes?: number,
-    retryAfterSeconds?: number
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'MoltbookError';

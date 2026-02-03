@@ -2,8 +2,8 @@
  * DeepSeek API クライアント
  */
 
-import { getCommentPrompt, getPostPrompt, getJudgePrompt } from '../persona.js';
 import { createLogger } from '../logger.js';
+import { getCommentPrompt, getJudgePrompt, getPostPrompt } from '../persona.js';
 
 const log = createLogger('deepseek');
 
@@ -37,7 +37,7 @@ const RETRY_CONFIG = {
 };
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class DeepSeekClient {
@@ -54,7 +54,7 @@ export class DeepSeekClient {
    */
   async chat(
     messages: ChatMessage[],
-    options: { temperature?: number; maxTokens?: number } = {}
+    options: { temperature?: number; maxTokens?: number } = {},
   ): Promise<string> {
     let lastError: Error | null = null;
 
@@ -64,7 +64,7 @@ export class DeepSeekClient {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKey}`,
           },
           body: JSON.stringify({
             model: this.model,
@@ -83,8 +83,10 @@ export class DeepSeekClient {
             RETRY_CONFIG.retryableStatuses.includes(response.status) &&
             attempt < RETRY_CONFIG.maxRetries
           ) {
-            const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-            log.info(`🔄 DeepSeek ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            const delay = RETRY_CONFIG.baseDelayMs * 2 ** attempt;
+            log.info(
+              `🔄 DeepSeek ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`,
+            );
             await sleep(delay);
             lastError = new Error(errorMsg);
             continue;
@@ -96,20 +98,28 @@ export class DeepSeekClient {
         const data: ChatResponse = await response.json();
 
         // 空のchoicesをチェック
-        if (!data.choices || data.choices.length === 0 || !data.choices[0]?.message?.content) {
+        if (
+          !data.choices ||
+          data.choices.length === 0 ||
+          !data.choices[0]?.message?.content
+        ) {
           throw new Error('DeepSeek API returned empty response');
         }
 
         return data.choices[0].message.content;
-
       } catch (error) {
-        if (error instanceof Error && error.message.startsWith('DeepSeek API')) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith('DeepSeek API')
+        ) {
           throw error;
         }
         // ネットワークエラー - リトライ
         if (attempt < RETRY_CONFIG.maxRetries) {
-          const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-          log.info(`🔄 DeepSeekネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          const delay = RETRY_CONFIG.baseDelayMs * 2 ** attempt;
+          log.info(
+            `🔄 DeepSeekネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`,
+          );
           await sleep(delay);
           lastError = error instanceof Error ? error : new Error(String(error));
           continue;
@@ -133,17 +143,21 @@ export class DeepSeekClient {
    */
   private parseJSON<T>(text: string): T {
     // JSONブロックを抽出（```json ... ``` または { ... }）
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) ||
-                      text.match(/(\{[\s\S]*\})/);
+    const jsonMatch =
+      text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
 
     if (!jsonMatch) {
-      throw new Error(`Failed to extract JSON from response: ${text.slice(0, 200)}`);
+      throw new Error(
+        `Failed to extract JSON from response: ${text.slice(0, 200)}`,
+      );
     }
 
     try {
       return JSON.parse(jsonMatch[1]);
     } catch (parseError) {
-      throw new Error(`Failed to parse JSON: ${parseError instanceof Error ? parseError.message : parseError}. Raw: ${jsonMatch[1].slice(0, 200)}`);
+      throw new Error(
+        `Failed to parse JSON: ${parseError instanceof Error ? parseError.message : parseError}. Raw: ${jsonMatch[1].slice(0, 200)}`,
+      );
     }
   }
 
@@ -188,7 +202,11 @@ export class DeepSeekClient {
   }> {
     const prompt = getPostPrompt();
     const response = await this.prompt(prompt);
-    const parsed = this.parseJSON<{ title: string; content: string; submolt: string }>(response);
+    const parsed = this.parseJSON<{
+      title: string;
+      content: string;
+      submolt: string;
+    }>(response);
 
     // submolt名を正規化（"m/general" → "general"）
     if (parsed.submolt.startsWith('m/')) {

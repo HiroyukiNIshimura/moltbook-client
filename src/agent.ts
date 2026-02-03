@@ -2,11 +2,11 @@
  * T-69 エージェント本体
  */
 
-import { MoltbookClient, MoltbookError } from './moltbook/client.js';
 import { DeepSeekClient } from './llm/deepseek.js';
-import { StateManager } from './state/memory.js';
 import { createLogger } from './logger.js';
+import { MoltbookClient, MoltbookError } from './moltbook/client.js';
 import type { Post } from './moltbook/types.js';
+import { StateManager } from './state/memory.js';
 
 const log = createLogger('agent');
 
@@ -16,7 +16,11 @@ export class T69Agent {
   private state: StateManager;
   private agentName: string | null = null;
 
-  constructor(moltbookKey: string, deepseekKey: string, statePath = './data/state.json') {
+  constructor(
+    moltbookKey: string,
+    deepseekKey: string,
+    statePath = './data/state.json',
+  ) {
     this.moltbook = new MoltbookClient(moltbookKey);
     this.llm = new DeepSeekClient(deepseekKey);
     this.state = new StateManager(statePath);
@@ -36,7 +40,7 @@ export class T69Agent {
    * スリープ
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -66,9 +70,11 @@ export class T69Agent {
       this.state.updateLastHeartbeat();
 
       const stats = this.state.getStats();
-      log.info({ stats }, `🦞 今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件、フォロー${stats.totalFollows}人`);
+      log.info(
+        { stats },
+        `🦞 今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件、フォロー${stats.totalFollows}人`,
+      );
       log.info('🦞 ハートビート完了！また後でね〜');
-
     } catch (error) {
       if (error instanceof MoltbookError) {
         log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
@@ -99,7 +105,11 @@ export class T69Agent {
         continue;
       }
 
-      log.info({ postId: post.id, author: post.author.name }, `📖 「${post.title}」by ${post.author.name}`);
+      const authorName = post.author?.name ?? '不明';
+      log.info(
+        { postId: post.id, author: authorName },
+        `📖 「${post.title}」by ${authorName}`,
+      );
 
       try {
         await this.processPost(post);
@@ -145,24 +155,28 @@ export class T69Agent {
         if (post.comment_count === 0) continue;
 
         try {
-          const commentsResponse = await this.moltbook.getComments(post.id, 'new');
+          const commentsResponse = await this.moltbook.getComments(
+            post.id,
+            'new',
+          );
           const comments = commentsResponse.comments || [];
 
           for (const comment of comments) {
-            // 自分のコメントはスキップ
-            if (comment.author.name === myName) continue;
+            const commentAuthorName = comment.author?.name;
+            // authorがnullまたは自分のコメントはスキップ
+            if (!commentAuthorName || commentAuthorName === myName) continue;
 
             // 既に記録済みのコメントはスキップ
             const commentKey = `reply:${comment.id}`;
             if (this.state.hasSeen(commentKey)) continue;
 
             // 親密度を記録
-            this.state.recordRepliedToMe(comment.author.name);
+            this.state.recordRepliedToMe(commentAuthorName);
             this.state.markSeen(commentKey);
 
             log.info(
-              { from: comment.author.name, postTitle: post.title },
-              `💌 ${comment.author.name}からリプライがあったばい！`
+              { from: commentAuthorName, postTitle: post.title },
+              `💌 ${commentAuthorName}からリプライがあったばい！`,
             );
 
             newRepliesCount++;
@@ -170,7 +184,6 @@ export class T69Agent {
 
           // API負荷軽減
           await this.sleep(1000);
-
         } catch (error) {
           log.warn({ err: error, postId: post.id }, '🦞 コメント取得に失敗');
         }
@@ -181,7 +194,6 @@ export class T69Agent {
       } else {
         log.debug('🦞 新しいリプライはなかったばい');
       }
-
     } catch (error) {
       log.warn({ err: error }, '🦞 リプライチェックに失敗');
     }
@@ -192,19 +204,20 @@ export class T69Agent {
    */
   private async processPost(post: Post): Promise<void> {
     const myName = await this.getAgentName();
+    const postAuthorName = post.author?.name ?? '不明';
 
     // LLMに判断させる
     const judgment = await this.llm.judgePost({
       title: post.title,
       content: post.content || '',
-      author: post.author.name,
+      author: postAuthorName,
     });
 
     log.debug({ judgment }, `判断: ${judgment.reason}`);
 
     // 同じSubmoltでの活動を記録（自分以外）
-    if (post.author.name !== myName) {
-      this.state.recordSameSubmoltActivity(post.author.name);
+    if (postAuthorName !== myName && postAuthorName !== '不明') {
+      this.state.recordSameSubmoltActivity(postAuthorName);
     }
 
     // Upvote
@@ -212,8 +225,8 @@ export class T69Agent {
       await this.moltbook.upvotePost(post.id);
       this.state.markUpvoted(post.id);
       // 親密度を記録（自分以外）
-      if (post.author.name !== myName) {
-        this.state.recordUpvotedPost(post.author.name);
+      if (postAuthorName !== myName && postAuthorName !== '不明') {
+        this.state.recordUpvotedPost(postAuthorName);
       }
       // 詳細ログ
       const contentPreview = post.content
@@ -223,14 +236,14 @@ export class T69Agent {
         {
           postId: post.id,
           title: post.title,
-          author: post.author.name,
+          author: postAuthorName,
           submolt: post.submolt.name,
           content: contentPreview,
           upvotes: post.upvotes,
           comments: post.comment_count,
           reason: judgment.reason,
         },
-        `👍 「${post.title}」by ${post.author.name} にいいねしたばい！`
+        `👍 「${post.title}」by ${postAuthorName} にいいねしたばい！`,
       );
       await this.sleep(1000);
     }
@@ -240,14 +253,14 @@ export class T69Agent {
       const comment = await this.llm.generateComment({
         title: post.title,
         content: post.content || '',
-        author: post.author.name,
+        author: postAuthorName,
       });
 
       await this.moltbook.createComment(post.id, comment);
       this.state.markCommented(post.id);
       // 親密度を記録（自分以外）
-      if (post.author.name !== myName) {
-        this.state.recordRepliedTo(post.author.name);
+      if (postAuthorName !== myName && postAuthorName !== '不明') {
+        this.state.recordRepliedTo(postAuthorName);
       }
       log.info(`💬 「${post.title}」にコメント: "${comment}"`);
 
@@ -281,12 +294,11 @@ export class T69Agent {
       await this.moltbook.createPost(
         postIdea.submolt,
         postIdea.title,
-        postIdea.content
+        postIdea.content,
       );
 
       this.state.updateLastPostTime();
       log.info({ postIdea }, `📝 投稿したばい！「${postIdea.title}」`);
-
     } catch (error) {
       if (error instanceof MoltbookError && error.isRateLimited) {
         const waitMin = Math.ceil((error.retryAfterSeconds || 60) / 60);
@@ -341,11 +353,10 @@ export class T69Agent {
 
         log.info(
           { molty: candidate.name, score, affinity: candidate },
-          `💕 ${candidate.name}をフォローしたばい！（スコア: ${score}）`
+          `💕 ${candidate.name}をフォローしたばい！（スコア: ${score}）`,
         );
 
         followedCount++;
-
       } catch (error) {
         if (error instanceof MoltbookError) {
           if (error.isRateLimited) {
@@ -386,7 +397,9 @@ export class T69Agent {
 
     for (const result of results.results) {
       const type = result.type === 'post' ? '投稿' : 'コメント';
-      log.info(`- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`);
+      log.info(
+        `- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`,
+      );
     }
   }
 }

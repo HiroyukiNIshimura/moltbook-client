@@ -5,8 +5,8 @@
 
 import 'dotenv/config';
 import { T69Agent } from './agent.js';
-import { getApiKey } from './moltbook/credentials.js';
 import { createLogger } from './logger.js';
+import { getApiKey } from './moltbook/credentials.js';
 
 const log = createLogger('main');
 
@@ -35,18 +35,28 @@ async function main(): Promise<void> {
   log.info('🦞 ═══════════════════════════════════════════');
   log.info('');
 
-  const moltbookApiKey = getApiKey()!;
+  const moltbookApiKey = getApiKey();
+  if (!moltbookApiKey) {
+    log.error('❌ MOLTBOOK_API_KEY が設定されてないばい！');
+    process.exit(1);
+  }
 
-  const intervalHours = parseInt(process.env.HEARTBEAT_INTERVAL_HOURS || '4', 10);
+  const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+  if (!deepseekApiKey) {
+    log.error('❌ DEEPSEEK_API_KEY が設定されてないばい！');
+    process.exit(1);
+  }
+
+  const intervalHours = parseInt(
+    process.env.HEARTBEAT_INTERVAL_HOURS || '4',
+    10,
+  );
   const intervalMs = intervalHours * 60 * 60 * 1000;
 
   log.info(`⏰ ハートビート間隔: ${intervalHours}時間`);
   log.info('');
 
-  const agent = new T69Agent(
-    moltbookApiKey,
-    process.env.DEEPSEEK_API_KEY!
-  );
+  const agent = new T69Agent(moltbookApiKey, deepseekApiKey);
 
   // 起動時に1回実行
   await agent.heartbeat();
@@ -81,7 +91,7 @@ async function main(): Promise<void> {
 }
 
 // 実行
-main().catch(error => {
+main().catch((error) => {
   log.error({ err: error }, '❌ エラーが起きたばい');
   process.exit(1);
 });

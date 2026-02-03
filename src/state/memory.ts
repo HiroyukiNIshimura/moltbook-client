@@ -2,20 +2,20 @@
  * 状態管理（永続化）
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /**
  * moltyとの親密度スコア
  */
 export interface MoltyAffinity {
   name: string;
-  repliedToMe: number;      // この人が私にリプライした回数
-  iRepliedTo: number;       // 私がこの人にリプライした回数
-  iUpvotedPosts: number;    // この人の投稿をUpvoteした回数
+  repliedToMe: number; // この人が私にリプライした回数
+  iRepliedTo: number; // 私がこの人にリプライした回数
+  iUpvotedPosts: number; // この人の投稿をUpvoteした回数
   iUpvotedComments: number; // この人のコメントをUpvoteした回数
   sameSubmoltActivity: number; // 同じSubmoltで活動した回数
-  lastInteraction: string;  // 最後のインタラクション日時
+  lastInteraction: string; // 最後のインタラクション日時
 }
 
 interface AgentState {
@@ -137,7 +137,9 @@ export class StateManager {
       this.state.stats.totalComments++;
 
       if (this.state.commentedPostIds.length > MAX_SEEN_IDS) {
-        this.state.commentedPostIds = this.state.commentedPostIds.slice(-MAX_SEEN_IDS);
+        this.state.commentedPostIds = this.state.commentedPostIds.slice(
+          -MAX_SEEN_IDS,
+        );
       }
 
       this.save();
@@ -160,7 +162,9 @@ export class StateManager {
       this.state.stats.totalUpvotes++;
 
       if (this.state.upvotedPostIds.length > MAX_SEEN_IDS) {
-        this.state.upvotedPostIds = this.state.upvotedPostIds.slice(-MAX_SEEN_IDS);
+        this.state.upvotedPostIds = this.state.upvotedPostIds.slice(
+          -MAX_SEEN_IDS,
+        );
       }
 
       this.save();
@@ -302,9 +306,9 @@ export class StateManager {
     if (!affinity) return 0;
 
     return (
-      affinity.repliedToMe * 3 +      // 私にリプライ: +3
-      affinity.iRepliedTo * 2 +       // 私がリプライ: +2
-      affinity.iUpvotedPosts * 2 +    // 投稿をUpvote: +2
+      affinity.repliedToMe * 3 + // 私にリプライ: +3
+      affinity.iRepliedTo * 2 + // 私がリプライ: +2
+      affinity.iUpvotedPosts * 2 + // 投稿をUpvote: +2
       affinity.iUpvotedComments * 1 + // コメントをUpvote: +1
       affinity.sameSubmoltActivity * 1 // 同じSubmoltで活動: +1
     );
@@ -315,13 +319,15 @@ export class StateManager {
    */
   getFollowCandidates(threshold = 5): MoltyAffinity[] {
     return Object.values(this.state.moltyAffinities)
-      .filter(affinity => {
+      .filter((affinity) => {
         const score = this.calculateAffinityScore(affinity.name);
         const notFollowed = !this.state.followedMolties.includes(affinity.name);
         return score >= threshold && notFollowed;
       })
-      .sort((a, b) =>
-        this.calculateAffinityScore(b.name) - this.calculateAffinityScore(a.name)
+      .sort(
+        (a, b) =>
+          this.calculateAffinityScore(b.name) -
+          this.calculateAffinityScore(a.name),
       );
   }
 

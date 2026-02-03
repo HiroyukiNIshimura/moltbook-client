@@ -1,7 +1,7 @@
 import 'dotenv/config';
+import { createLogger } from './logger.js';
 import { MoltbookClient } from './moltbook/client.js';
 import { getApiKey } from './moltbook/credentials.js';
-import { createLogger } from './logger.js';
 
 const log = createLogger('check-profile');
 

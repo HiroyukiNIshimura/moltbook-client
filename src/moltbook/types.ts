@@ -32,7 +32,7 @@ export interface Post {
   content?: string;
   url?: string;
   submolt: Submolt;
-  author: Author;
+  author: Author | null;
   upvotes: number;
   downvotes: number;
   comment_count: number;
@@ -43,7 +43,7 @@ export interface Post {
 export interface Comment {
   id: string;
   content: string;
-  author: Author;
+  author: Author | null;
   parent_id?: string;
   upvotes: number;
   downvotes: number;
