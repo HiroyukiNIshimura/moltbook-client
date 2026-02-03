@@ -3,6 +3,9 @@
  */
 
 import { getCommentPrompt, getPostPrompt, getJudgePrompt } from '../persona.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('deepseek');
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -81,7 +84,7 @@ export class DeepSeekClient {
             attempt < RETRY_CONFIG.maxRetries
           ) {
             const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-            console.log(`🔄 DeepSeek ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            log.info(`🔄 DeepSeek ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
             await sleep(delay);
             lastError = new Error(errorMsg);
             continue;
@@ -106,7 +109,7 @@ export class DeepSeekClient {
         // ネットワークエラー - リトライ
         if (attempt < RETRY_CONFIG.maxRetries) {
           const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-          console.log(`🔄 DeepSeekネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          log.info(`🔄 DeepSeekネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
           await sleep(delay);
           lastError = error instanceof Error ? error : new Error(String(error));
           continue;

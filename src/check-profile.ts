@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import { MoltbookClient } from './moltbook/client.js';
 import { getApiKey } from './moltbook/credentials.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('check-profile');
 
 async function main() {
   const apiKey = getApiKey();
@@ -11,10 +14,10 @@ async function main() {
 
   const client = new MoltbookClient(apiKey);
 
-  console.log('🔍 プロフィールを確認中...');
+  log.info('🔍 プロフィールを確認中...');
   const result = await client.getMe();
-  console.log('avatar_url:', result.agent.avatar_url || '(なし)');
-  console.log('Full agent:', JSON.stringify(result.agent, null, 2));
+  log.info(`avatar_url: ${result.agent.avatar_url || '(なし)'}`);
+  log.info({ agent: result.agent }, 'Full agent');
 }
 
 main();

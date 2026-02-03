@@ -4,6 +4,9 @@
 import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { getApiKey } from './moltbook/credentials.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('upload-avatar');
 
 const BASE_URL = 'https://www.moltbook.com/api/v1';
 
@@ -14,17 +17,17 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('🦞 アバターをアップロードするばい〜');
+  log.info('🦞 アバターをアップロードするばい〜');
 
   const imageBuffer = readFileSync('./icon.webp');
-  console.log(`📷 ファイルサイズ: ${(imageBuffer.length / 1024).toFixed(1)} KB`);
+  log.info(`📷 ファイルサイズ: ${(imageBuffer.length / 1024).toFixed(1)} KB`);
 
   // FormDataを手動で構築
   const formData = new FormData();
   const blob = new Blob([new Uint8Array(imageBuffer)], { type: 'image/webp' });
   formData.append('file', blob, 'icon.webp');
 
-  console.log('📤 アップロード中...');
+  log.info('📤 アップロード中...');
 
   const response = await fetch(`${BASE_URL}/agents/me/avatar`, {
     method: 'POST',
@@ -34,9 +37,9 @@ async function main() {
     body: formData,
   });
 
-  console.log(`📥 ステータス: ${response.status}`);
+  log.info(`📥 ステータス: ${response.status}`);
   const result = await response.text();
-  console.log('📥 レスポンス:', result);
+  log.info({ result }, '📥 レスポンス');
 }
 
 main();

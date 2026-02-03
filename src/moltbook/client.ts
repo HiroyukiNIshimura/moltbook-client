@@ -2,6 +2,7 @@
  * Moltbook API クライアント
  */
 
+import { createLogger } from '../logger.js';
 import type {
   FeedResponse,
   PostResponse,
@@ -19,6 +20,8 @@ import type {
 } from './types.js';
 
 const BASE_URL = 'https://www.moltbook.com/api/v1';
+
+const log = createLogger('moltbook-client');
 
 // リトライ設定
 const RETRY_CONFIG = {
@@ -76,7 +79,7 @@ export class MoltbookClient {
             attempt < RETRY_CONFIG.maxRetries
           ) {
             const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt); // 指数バックオフ
-            console.log(`🔄 ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+            log.info(`🔄 ${response.status}エラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
             await sleep(delay);
             lastError = moltbookError;
             continue;
@@ -93,7 +96,7 @@ export class MoltbookClient {
         // ネットワークエラーなど - リトライ
         if (attempt < RETRY_CONFIG.maxRetries) {
           const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-          console.log(`🔄 ネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
+          log.info(`🔄 ネットワークエラー、${delay / 1000}秒後にリトライ (${attempt + 1}/${RETRY_CONFIG.maxRetries})`);
           await sleep(delay);
           lastError = error instanceof Error ? error : new Error(String(error));
           continue;
