@@ -338,8 +338,8 @@ export class T69Agent {
       innerThoughts: judgment.reason,
     });
 
-    // 返信を投稿
-    await this.moltbook.createComment(post.id, reply);
+    // 返信を投稿（parent_id にコメントIDを指定して、そのコメントへの返信にする）
+    await this.moltbook.createComment(post.id, reply, comment.id);
 
     log.info(
       { to: commenterName, postTitle: post.title },
