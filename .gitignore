@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .env
-data/stateon.json
+data/stateon
 *.log
 logs/
 .DS_Store
