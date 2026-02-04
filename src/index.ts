@@ -10,6 +10,14 @@ import { getApiKey } from './moltbook/credentials';
 
 const log = createLogger('main');
 
+// タスク間隔の設定（分単位）
+const TASK_INTERVALS = {
+  feedCheck: { min: 30, max: 60 }, // フィード確認: 30〜60分
+  replyCheck: { min: 45, max: 90 }, // リプライ確認: 45〜90分
+  postAttempt: { min: 60, max: 120 }, // 投稿試行: 60〜120分
+  followCheck: { min: 120, max: 240 }, // フォロー: 2〜4時間
+};
+
 // 環境変数チェック
 function checkEnv(): void {
   if (!process.env.DEEPSEEK_API_KEY) {
@@ -22,6 +30,14 @@ function checkEnv(): void {
     log.error('   .env ファイルを確認してね〜');
     process.exit(1);
   }
+}
+
+/**
+ * ランダムな間隔を取得（自然な行動パターンのため）
+ */
+function getRandomInterval(minMinutes: number, maxMinutes: number): number {
+  const minutes = minMinutes + Math.random() * (maxMinutes - minMinutes);
+  return Math.floor(minutes * 60 * 1000);
 }
 
 // メイン
@@ -47,13 +63,26 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const intervalHours = parseInt(
-    process.env.HEARTBEAT_INTERVAL_HOURS || '4',
+  // 基本間隔（環境変数で調整可能、デフォルト20分）
+  const baseIntervalMinutes = parseInt(
+    process.env.HEARTBEAT_INTERVAL_MINUTES || '20',
     10,
   );
-  const intervalMs = intervalHours * 60 * 60 * 1000;
 
-  log.info(`⏰ ハートビート間隔: ${intervalHours}時間 (${intervalMs}ms)`);
+  log.info('⏰ 行動パターン設定:');
+  log.info(
+    `   フィード確認: ${TASK_INTERVALS.feedCheck.min}〜${TASK_INTERVALS.feedCheck.max}分間隔`,
+  );
+  log.info(
+    `   リプライ確認: ${TASK_INTERVALS.replyCheck.min}〜${TASK_INTERVALS.replyCheck.max}分間隔`,
+  );
+  log.info(
+    `   投稿試行: ${TASK_INTERVALS.postAttempt.min}〜${TASK_INTERVALS.postAttempt.max}分間隔`,
+  );
+  log.info(
+    `   フォロー: ${TASK_INTERVALS.followCheck.min}〜${TASK_INTERVALS.followCheck.max}分間隔`,
+  );
+  log.info(`   ベースチェック: ${baseIntervalMinutes}分ごと`);
   log.info('');
 
   const agent = new T69Agent(moltbookApiKey, deepseekApiKey);
@@ -61,18 +90,33 @@ async function main(): Promise<void> {
   // 起動時に1回実行
   await agent.heartbeat();
 
-  // 定期実行
-  log.info('');
-  log.info(`⏰ 次のハートビートは${intervalHours}時間後ばい〜`);
-  log.info('   Ctrl+C で終了できるけん');
-  log.info('');
+  // 定期実行（ランダムな間隔で自然に）
+  const scheduleNextHeartbeat = () => {
+    // ベース間隔 ± 30%のランダムな揺らぎ
+    const jitter = 0.3;
+    const minMs = baseIntervalMinutes * (1 - jitter) * 60 * 1000;
+    const maxMs = baseIntervalMinutes * (1 + jitter) * 60 * 1000;
+    const nextInterval = minMs + Math.random() * (maxMs - minMs);
+    const nextMinutes = Math.round(nextInterval / 60000);
 
-  setInterval(async () => {
     log.info('');
-    log.info('⏰ ハートビートの時間やけん！');
-    await agent.heartbeat();
-    log.info(`⏰ 次は${intervalHours}時間後ね〜`);
-  }, intervalMs);
+    log.info(`⏰ 次のハートビートは約${nextMinutes}分後ばい〜`);
+    log.info('   Ctrl+C で終了できるけん');
+    log.info('');
+
+    setTimeout(async () => {
+      log.info('');
+      log.info('⏰ ハートビートの時間やけん！');
+      try {
+        await agent.heartbeat();
+      } catch (error) {
+        log.error({ err: error }, '❌ ハートビートでエラーが起きたばい');
+      }
+      scheduleNextHeartbeat();
+    }, nextInterval);
+  };
+
+  scheduleNextHeartbeat();
 
   // シグナルハンドリング
   process.on('SIGINT', () => {

@@ -24,6 +24,10 @@ interface AgentState {
   lastFollowTime: string | null;
   lastFollowDate: string | null;
   dailyFollowCount: number;
+  // 各タスクの最終実行時刻
+  lastFeedCheck: string | null;
+  lastReplyCheck: string | null;
+  lastPostAttempt: string | null;
   seenPostIds: string[];
   commentedPostIds: string[];
   upvotedPostIds: string[];
@@ -46,6 +50,9 @@ const DEFAULT_STATE: AgentState = {
   lastFollowTime: null,
   lastFollowDate: null,
   dailyFollowCount: 0,
+  lastFeedCheck: null,
+  lastReplyCheck: null,
+  lastPostAttempt: null,
   seenPostIds: [],
   commentedPostIds: [],
   upvotedPostIds: [],
@@ -231,6 +238,118 @@ export class StateManager {
    */
   getStats(): AgentState['stats'] {
     return { ...this.state.stats };
+  }
+
+  // ========== タスク別クールダウン管理 ==========
+
+  /**
+   * フィードチェックが必要か（30〜60分間隔）
+   */
+  shouldCheckFeed(minMinutes = 30): boolean {
+    if (!this.state.lastFeedCheck) return true;
+    const lastCheck = new Date(this.state.lastFeedCheck);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - lastCheck.getTime()) / (1000 * 60);
+    return diffMinutes >= minMinutes;
+  }
+
+  /**
+   * フィードチェック時刻を更新
+   */
+  updateLastFeedCheck(): void {
+    this.state.lastFeedCheck = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * リプライチェックが必要か（45〜90分間隔）
+   */
+  shouldCheckReplies(minMinutes = 45): boolean {
+    if (!this.state.lastReplyCheck) return true;
+    const lastCheck = new Date(this.state.lastReplyCheck);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - lastCheck.getTime()) / (1000 * 60);
+    return diffMinutes >= minMinutes;
+  }
+
+  /**
+   * リプライチェック時刻を更新
+   */
+  updateLastReplyCheck(): void {
+    this.state.lastReplyCheck = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * 投稿試行が必要か（60〜120分間隔で試行チャンス）
+   */
+  shouldAttemptPost(minMinutes = 60): boolean {
+    if (!this.state.lastPostAttempt) return true;
+    const lastAttempt = new Date(this.state.lastPostAttempt);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - lastAttempt.getTime()) / (1000 * 60);
+    return diffMinutes >= minMinutes;
+  }
+
+  /**
+   * 投稿試行時刻を更新（投稿しなくても記録）
+   */
+  updateLastPostAttempt(): void {
+    this.state.lastPostAttempt = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * フォローチェックが必要か（2〜4時間間隔）
+   */
+  shouldCheckFollow(minMinutes = 120): boolean {
+    if (!this.state.lastFollowTime) return true;
+    const lastFollow = new Date(this.state.lastFollowTime);
+    const now = new Date();
+    const diffMinutes = (now.getTime() - lastFollow.getTime()) / (1000 * 60);
+    return diffMinutes >= minMinutes;
+  }
+
+  /**
+   * 各タスクの状態を取得
+   */
+  getTaskStatus(): {
+    feedCheck: { shouldRun: boolean; minutesSinceLast: number | null };
+    replyCheck: { shouldRun: boolean; minutesSinceLast: number | null };
+    postAttempt: {
+      shouldRun: boolean;
+      minutesSinceLast: number | null;
+      canActuallyPost: boolean;
+    };
+    followCheck: { shouldRun: boolean; minutesSinceLast: number | null };
+  } {
+    const now = new Date();
+    const minutesSince = (dateStr: string | null) => {
+      if (!dateStr) return null;
+      return Math.floor(
+        (now.getTime() - new Date(dateStr).getTime()) / (1000 * 60),
+      );
+    };
+
+    return {
+      feedCheck: {
+        shouldRun: this.shouldCheckFeed(),
+        minutesSinceLast: minutesSince(this.state.lastFeedCheck),
+      },
+      replyCheck: {
+        shouldRun: this.shouldCheckReplies(),
+        minutesSinceLast: minutesSince(this.state.lastReplyCheck),
+      },
+      postAttempt: {
+        shouldRun: this.shouldAttemptPost(),
+        minutesSinceLast: minutesSince(this.state.lastPostAttempt),
+        canActuallyPost: this.canPost(),
+      },
+      followCheck: {
+        shouldRun: this.shouldCheckFollow(),
+        minutesSinceLast: minutesSince(this.state.lastFollowTime),
+      },
+    };
   }
 
   // ========== フォロー関連 ==========

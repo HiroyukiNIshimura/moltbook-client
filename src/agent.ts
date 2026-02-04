@@ -44,12 +44,16 @@ export class T69Agent {
   }
 
   /**
-   * ハートビート（定期実行）
+   * ハートビート（定期実行） - より自然なパターンで各タスクを実行
    */
   async heartbeat(): Promise<void> {
     log.info('🦞 ハートビート開始やけん！');
 
     try {
+      // タスクの状態を確認
+      const taskStatus = this.state.getTaskStatus();
+      log.info({ taskStatus }, '🦞 タスク状態をチェック...');
+
       // 0. スキルバージョンをチェック（1日1回）
       await this.checkSkillVersion();
 
@@ -57,17 +61,44 @@ export class T69Agent {
       const me = await this.moltbook.getMe();
       log.info(`🦞 うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
 
-      // 2. フィードをチェック
-      await this.checkFeed();
+      // 2. フィードをチェック（30〜60分間隔）
+      if (taskStatus.feedCheck.shouldRun) {
+        await this.checkFeed();
+        this.state.updateLastFeedCheck();
+      } else {
+        log.info(
+          `🦞 フィードチェックはまだ早かばい（${taskStatus.feedCheck.minutesSinceLast}分前）`,
+        );
+      }
 
-      // 3. 自分の投稿へのリプライをチェック
-      await this.checkReplies();
+      // 3. 自分の投稿へのリプライをチェック（45〜90分間隔）
+      if (taskStatus.replyCheck.shouldRun) {
+        await this.checkReplies();
+        this.state.updateLastReplyCheck();
+      } else {
+        log.info(
+          `🦞 リプライチェックはまだ早かばい（${taskStatus.replyCheck.minutesSinceLast}分前）`,
+        );
+      }
 
-      // 4. たまに投稿する
-      await this.maybeCreatePost();
+      // 4. たまに投稿する（60〜120分間隔で試行）
+      if (taskStatus.postAttempt.shouldRun) {
+        await this.maybeCreatePost();
+        this.state.updateLastPostAttempt();
+      } else {
+        log.info(
+          `🦞 投稿試行はまだ早かばい（${taskStatus.postAttempt.minutesSinceLast}分前）`,
+        );
+      }
 
-      // 5. 気に入ったmoltyをフォロー
-      await this.maybeFollowMolties();
+      // 5. 気に入ったmoltyをフォロー（2〜4時間間隔）
+      if (taskStatus.followCheck.shouldRun) {
+        await this.maybeFollowMolties();
+      } else {
+        log.info(
+          `🦞 フォローチェックはまだ早かばい（${taskStatus.followCheck.minutesSinceLast}分前）`,
+        );
+      }
 
       // 6. 状態を更新
       this.state.updateLastHeartbeat();
