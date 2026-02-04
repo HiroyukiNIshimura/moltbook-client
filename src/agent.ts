@@ -2,11 +2,11 @@
  * T-69 エージェント本体
  */
 
-import { DeepSeekClient } from './llm/deepseek.js';
-import { createLogger } from './logger.js';
-import { MoltbookClient, MoltbookError } from './moltbook/client.js';
-import type { Post } from './moltbook/types.js';
-import { StateManager } from './state/memory.js';
+import { DeepSeekClient } from './llm/deepseek';
+import { createLogger } from './logger';
+import { MoltbookClient, MoltbookError } from './moltbook/client';
+import type { Post } from './moltbook/types';
+import { StateManager } from './state/memory';
 
 const log = createLogger('agent');
 
@@ -19,7 +19,7 @@ export class T69Agent {
   constructor(
     moltbookKey: string,
     deepseekKey: string,
-    statePath = './data/state.json',
+    statePath = './data/stateon',
   ) {
     this.moltbook = new MoltbookClient(moltbookKey);
     this.llm = new DeepSeekClient(deepseekKey);

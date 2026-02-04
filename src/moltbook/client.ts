@@ -2,7 +2,7 @@
  * Moltbook API クライアント
  */
 
-import { createLogger } from '../logger.js';
+import { createLogger } from '../logger';
 import type {
   Agent,
   Comment,
@@ -17,7 +17,7 @@ import type {
   SubmoltDetails,
   SubmoltResponse,
   VoteResponse,
-} from './types.js';
+} from './types';
 
 const BASE_URL = 'https://www.moltbook.com/api/v1';
 

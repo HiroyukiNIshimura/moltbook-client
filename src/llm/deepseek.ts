@@ -2,8 +2,8 @@
  * DeepSeek API クライアント
  */
 
-import { createLogger } from '../logger.js';
-import { getCommentPrompt, getJudgePrompt, getPostPrompt } from '../persona.js';
+import { createLogger } from '../logger';
+import { getCommentPrompt, getJudgePrompt, getPostPrompt } from '../persona';
 
 const log = createLogger('deepseek');
 

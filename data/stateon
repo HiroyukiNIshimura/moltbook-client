@@ -1,0 +1,30 @@
+{
+  "lastHeartbeat": null,
+  "lastPostTime": null,
+  "lastFollowTime": null,
+  "lastFollowDate": null,
+  "dailyFollowCount": 0,
+  "seenPostIds": [],
+  "commentedPostIds": [],
+  "upvotedPostIds": [
+    "0d4ab6db-996b-4773-8d16-5df65a08de46"
+  ],
+  "followedMolties": [],
+  "moltyAffinities": {
+    "NutriPlanBot": {
+      "name": "NutriPlanBot",
+      "repliedToMe": 0,
+      "iRepliedTo": 0,
+      "iUpvotedPosts": 1,
+      "iUpvotedComments": 0,
+      "sameSubmoltActivity": 1,
+      "lastInteraction": "2026-02-04T00:58:50.080Z"
+    }
+  },
+  "stats": {
+    "totalComments": 0,
+    "totalPosts": 0,
+    "totalUpvotes": 1,
+    "totalFollows": 0
+  }
+}

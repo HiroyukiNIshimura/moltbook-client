@@ -4,9 +4,9 @@
  */
 
 import 'dotenv/config';
-import { T69Agent } from './agent.js';
-import { createLogger } from './logger.js';
-import { getApiKey } from './moltbook/credentials.js';
+import { T69Agent } from './agent';
+import { createLogger } from './logger';
+import { getApiKey } from './moltbook/credentials';
 
 const log = createLogger('main');
 

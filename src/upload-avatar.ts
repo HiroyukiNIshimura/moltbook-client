@@ -3,8 +3,8 @@
  */
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
-import { createLogger } from './logger.js';
-import { getApiKey } from './moltbook/credentials.js';
+import { createLogger } from './logger';
+import { getApiKey } from './moltbook/credentials';
 
 const log = createLogger('upload-avatar');
 
