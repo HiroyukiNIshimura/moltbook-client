@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 data/stateon
+data/recent_topics.json
 *.log
 logs/
 .DS_Store
