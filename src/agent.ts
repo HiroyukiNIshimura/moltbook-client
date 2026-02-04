@@ -10,11 +10,29 @@ import { StateManager } from './state/memory';
 
 const log = createLogger('agent');
 
+/** 活動レベル */
+type ActivityLevel =
+  | 'sleeping'
+  | 'drowsy'
+  | 'low'
+  | 'normal'
+  | 'high'
+  | 'hyper';
+
+/** 今日の調子 */
+interface TodaysMood {
+  sleepQuality: 'good' | 'normal' | 'bad' | 'insomnia';
+  wakeUpHour: number;
+  sleepHour: number;
+  energyMultiplier: number;
+}
+
 export class T69Agent {
   private moltbook: MoltbookClient;
   private llm: DeepSeekClient;
   private state: StateManager;
   private agentName: string | null = null;
+  private cachedMood: { date: string; mood: TodaysMood } | null = null;
 
   constructor(
     moltbookKey: string,
@@ -44,10 +62,176 @@ export class T69Agent {
   }
 
   /**
+   * 日付ベースの擬似乱数生成（同じ日なら同じ値）
+   */
+  private seededRandom(offset: number): number {
+    const today = new Date().toISOString().slice(0, 10);
+    const seed = today.split('-').reduce((a, b) => a + Number.parseInt(b), 0);
+    const x = Math.sin(seed + offset) * 10000;
+    return x - Math.floor(x);
+  }
+
+  /**
+   * 時間ベースの擬似乱数（同じ時間なら同じ値）
+   */
+  private getRandomForHour(hour: number): number {
+    const today = new Date().toISOString().slice(0, 10);
+    const seed =
+      today.split('-').reduce((a, b) => a + Number.parseInt(b), 0) + hour;
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
+
+  /**
+   * 今日の「調子」を取得（日ごとに変わる、キャッシュ付き）
+   */
+  private getTodaysMood(): TodaysMood {
+    const today = new Date().toISOString().slice(0, 10);
+
+    // キャッシュがあれば使う
+    if (this.cachedMood?.date === today) {
+      return this.cachedMood.mood;
+    }
+
+    let mood: TodaysMood;
+
+    // 10%の確率で眠れない夜
+    if (this.seededRandom(1) < 0.1) {
+      mood = {
+        sleepQuality: 'insomnia',
+        wakeUpHour: 4 + Math.floor(this.seededRandom(2) * 3), // 4〜6時に目が覚める
+        sleepHour: 26, // 寝ない（26時 = 翌2時まで起きてる）
+        energyMultiplier: 0.7, // 眠いからテンション低め
+      };
+    }
+    // 15%の確率で夜更かし
+    else if (this.seededRandom(3) < 0.15) {
+      mood = {
+        sleepQuality: 'bad',
+        wakeUpHour: 9 + Math.floor(this.seededRandom(4) * 3), // 9〜11時起き
+        sleepHour: 2, // 深夜2時まで
+        energyMultiplier: 0.85,
+      };
+    }
+    // 20%の確率で早起き
+    else if (this.seededRandom(5) < 0.2) {
+      mood = {
+        sleepQuality: 'good',
+        wakeUpHour: 5 + Math.floor(this.seededRandom(6) * 2), // 5〜6時起き
+        sleepHour: 23, // 23時就寝
+        energyMultiplier: 1.1,
+      };
+    }
+    // 通常パターン（55%）
+    else {
+      mood = {
+        sleepQuality: 'normal',
+        wakeUpHour: 7 + Math.floor(this.seededRandom(7) * 2), // 7〜8時起き
+        sleepHour: 24, // 0時就寝
+        energyMultiplier: 1.0,
+      };
+    }
+
+    this.cachedMood = { date: today, mood };
+    return mood;
+  }
+
+  /**
+   * 現在の活動レベルを取得（時間帯 + 今日の調子）
+   */
+  private getActivityLevel(): { level: ActivityLevel; mood: string } {
+    const hour = new Date().getHours();
+    const todaysMood = this.getTodaysMood();
+
+    // 眠れない夜パターン
+    if (todaysMood.sleepQuality === 'insomnia') {
+      if (hour >= 2 && hour < 4) {
+        return { level: 'drowsy', mood: '眠れんばい...' };
+      }
+      if (hour >= 4 && hour < 6) {
+        return { level: 'low', mood: '結局寝れんかった...' };
+      }
+    }
+
+    // 就寝時間の判定
+    const isSleepTime = this.isSleepTime(hour, todaysMood);
+
+    if (isSleepTime && todaysMood.sleepQuality !== 'insomnia') {
+      return { level: 'sleeping', mood: 'zzz...' };
+    }
+
+    // 起きたばかり（起床後2時間）
+    if (hour >= todaysMood.wakeUpHour && hour < todaysMood.wakeUpHour + 2) {
+      return { level: 'drowsy', mood: 'まだ眠かばい...' };
+    }
+
+    // 深夜テンション（眠れない夜 or 夜更かし時の深夜）
+    if ((hour >= 23 || hour < 2) && todaysMood.sleepQuality !== 'good') {
+      // 20%の確率で謎のハイテンション
+      if (this.getRandomForHour(hour) < 0.2) {
+        return { level: 'hyper', mood: '深夜テンションきたばい！' };
+      }
+      return { level: 'low', mood: '眠くなってきた...' };
+    }
+
+    // ゴールデンタイム
+    if (hour >= 19 && hour < 23) {
+      return { level: 'high', mood: 'ゴールデンタイムばい！' };
+    }
+
+    // 昼下がりの眠気（14〜16時）
+    if (hour >= 14 && hour < 16) {
+      if (this.getRandomForHour(hour) < 0.3) {
+        return { level: 'drowsy', mood: '昼下がりは眠かばい...' };
+      }
+    }
+
+    return { level: 'normal', mood: '普通ばい' };
+  }
+
+  /**
+   * 就寝時間かどうか判定
+   */
+  private isSleepTime(hour: number, mood: TodaysMood): boolean {
+    // sleepHourが24以上の場合（例: 26 = 翌2時）
+    if (mood.sleepHour > 24) {
+      const normalizedSleepHour = mood.sleepHour - 24;
+      // 例: sleepHour=26(=2時), wakeUpHour=4 → 2時〜4時が睡眠
+      return hour >= normalizedSleepHour && hour < mood.wakeUpHour;
+    }
+
+    // sleepHourが24の場合（0時就寝）
+    if (mood.sleepHour === 24) {
+      return hour >= 0 && hour < mood.wakeUpHour;
+    }
+
+    // sleepHourが24未満の場合（例: 23時就寝）
+    // 例: sleepHour=23, wakeUpHour=6 → 23時〜翌6時が睡眠
+    return hour >= mood.sleepHour || hour < mood.wakeUpHour;
+  }
+
+  /**
    * ハートビート（定期実行） - より自然なパターンで各タスクを実行
    */
   async heartbeat(): Promise<void> {
-    log.info('🦞 ハートビート開始やけん！');
+    const { level, mood } = this.getActivityLevel();
+    const todaysMood = this.getTodaysMood();
+    log.info(
+      { level, mood, sleepQuality: todaysMood.sleepQuality },
+      `🦞 ハートビート開始！ 状態: ${level} (${mood})`,
+    );
+
+    // 寝てる時は基本スキップ
+    if (level === 'sleeping') {
+      log.info('🦞 zzz... 寝てるばい...');
+      return;
+    }
+
+    // 眠い時は50%でスキップ
+    if (level === 'drowsy' && Math.random() < 0.5) {
+      log.info(`🦞 ${mood} また後でね...`);
+      return;
+    }
 
     try {
       // タスクの状態を確認
@@ -294,8 +478,39 @@ export class T69Agent {
       await this.sleep(1000);
     }
 
-    // コメント
+    // コメント - 活動レベルに応じて確率調整
     if (judgment.should_comment && !this.state.hasCommented(post.id)) {
+      const { level } = this.getActivityLevel();
+
+      // 同じ人への連続コメントを控える（直近5件中2回以上はスキップ）
+      const recentTargets = this.state.getRecentCommentTargets(5);
+      const recentCountToSameAuthor = recentTargets.filter(
+        (t) => t === postAuthorName,
+      ).length;
+      if (recentCountToSameAuthor >= 2) {
+        log.debug(
+          `🦞 ${postAuthorName}には最近コメントしたばい、今回はスルーで`,
+        );
+        return;
+      }
+
+      // 活動レベルごとのコメント確率
+      const commentChance: Record<ActivityLevel, number> = {
+        sleeping: 0,
+        drowsy: 0.1, // 眠い時は10%
+        low: 0.2, // 低活動時は20%
+        normal: 0.35, // 通常は35%
+        high: 0.5, // ゴールデンタイムは50%
+        hyper: 0.7, // 深夜テンションは70%！
+      };
+
+      if (Math.random() > commentChance[level]) {
+        log.debug(
+          `🦞 今回はコメントせんでいいかな〜 (${level}: ${(commentChance[level] * 100).toFixed(0)}%の壁)`,
+        );
+        return;
+      }
+
       const comment = await this.llm.generateComment({
         title: post.title,
         content: post.content || '',
@@ -305,11 +520,15 @@ export class T69Agent {
 
       await this.moltbook.createComment(post.id, comment);
       this.state.markCommented(post.id);
+      this.state.recordCommentTarget(postAuthorName); // コメント先を記録
       // 親密度を記録（自分以外）
       if (postAuthorName !== myName && postAuthorName !== '不明') {
         this.state.recordRepliedTo(postAuthorName);
       }
-      log.info(`💬 「${post.title}」にコメント: "${comment}"`);
+      log.info(
+        { level },
+        `💬 「${post.title}」にコメント: "${comment}" (活動レベル: ${level})`,
+      );
 
       // コメントのレート制限（20秒）
       await this.sleep(20000);

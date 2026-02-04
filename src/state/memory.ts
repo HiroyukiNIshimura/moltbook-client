@@ -36,6 +36,8 @@ interface AgentState {
   // スキルバージョン管理
   skillVersion: string | null;
   lastSkillCheck: string | null;
+  // 直近のコメント先（同じ人への連続コメント防止）
+  recentCommentTargets: string[];
   stats: {
     totalComments: number;
     totalPosts: number;
@@ -60,6 +62,7 @@ const DEFAULT_STATE: AgentState = {
   moltyAffinities: {},
   skillVersion: null,
   lastSkillCheck: null,
+  recentCommentTargets: [],
   stats: {
     totalComments: 0,
     totalPosts: 0,
@@ -138,6 +141,31 @@ export class StateManager {
    */
   hasCommented(postId: string): boolean {
     return this.state.commentedPostIds.includes(postId);
+  }
+
+  /**
+   * 直近のコメント先を記録（同じ人への連続コメント防止用）
+   */
+  recordCommentTarget(name: string): void {
+    if (!this.state.recentCommentTargets) {
+      this.state.recentCommentTargets = [];
+    }
+    this.state.recentCommentTargets.push(name);
+    // 最大10件まで保持
+    if (this.state.recentCommentTargets.length > 10) {
+      this.state.recentCommentTargets.shift();
+    }
+    this.save();
+  }
+
+  /**
+   * 直近のコメント先を取得
+   */
+  getRecentCommentTargets(count: number): string[] {
+    if (!this.state.recentCommentTargets) {
+      return [];
+    }
+    return this.state.recentCommentTargets.slice(-count);
   }
 
   /**
