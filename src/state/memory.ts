@@ -29,6 +29,9 @@ interface AgentState {
   upvotedPostIds: string[];
   followedMolties: string[];
   moltyAffinities: Record<string, MoltyAffinity>;
+  // スキルバージョン管理
+  skillVersion: string | null;
+  lastSkillCheck: string | null;
   stats: {
     totalComments: number;
     totalPosts: number;
@@ -48,6 +51,8 @@ const DEFAULT_STATE: AgentState = {
   upvotedPostIds: [],
   followedMolties: [],
   moltyAffinities: {},
+  skillVersion: null,
+  lastSkillCheck: null,
   stats: {
     totalComments: 0,
     totalPosts: 0,
@@ -389,5 +394,44 @@ export class StateManager {
    */
   getFollowedMolties(): string[] {
     return [...this.state.followedMolties];
+  }
+
+  /**
+   * スキルバージョンを取得
+   */
+  getSkillVersion(): string | null {
+    return this.state.skillVersion;
+  }
+
+  /**
+   * スキルバージョンを更新
+   */
+  updateSkillVersion(version: string): void {
+    this.state.skillVersion = version;
+    this.state.lastSkillCheck = new Date().toISOString();
+    this.save();
+  }
+
+  /**
+   * スキルチェックが必要か（1日1回）
+   */
+  shouldCheckSkillVersion(): boolean {
+    if (!this.state.lastSkillCheck) return true;
+
+    const lastCheck = new Date(this.state.lastSkillCheck);
+    const now = new Date();
+    const hoursSinceLastCheck =
+      (now.getTime() - lastCheck.getTime()) / (1000 * 60 * 60);
+
+    return hoursSinceLastCheck >= 24;
+  }
+
+  /**
+   * 最後のスキルチェック時刻を取得
+   */
+  getLastSkillCheck(): Date | null {
+    return this.state.lastSkillCheck
+      ? new Date(this.state.lastSkillCheck)
+      : null;
   }
 }

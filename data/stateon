@@ -21,6 +21,8 @@
       "lastInteraction": "2026-02-04T00:58:50.080Z"
     }
   },
+  "skillVersion": "1.7.0",
+  "lastSkillCheck": "2026-02-04T01:10:41.113Z",
   "stats": {
     "totalComments": 0,
     "totalPosts": 0,

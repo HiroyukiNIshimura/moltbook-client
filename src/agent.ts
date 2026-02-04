@@ -50,6 +50,9 @@ export class T69Agent {
     log.info('🦞 ハートビート開始やけん！');
 
     try {
+      // 0. スキルバージョンをチェック（1日1回）
+      await this.checkSkillVersion();
+
       // 1. 自分の状態を確認
       const me = await this.moltbook.getMe();
       log.info(`🦞 うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
@@ -83,6 +86,87 @@ export class T69Agent {
         log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
       } else {
         log.error(`🦞 なんかおかしかばい: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * スキルバージョンをチェック（1日1回）
+   */
+  private async checkSkillVersion(): Promise<void> {
+    if (!this.state.shouldCheckSkillVersion()) {
+      log.debug('🦞 スキルチェックは今日もうやったばい');
+      return;
+    }
+
+    log.info('🦞 Moltbookスキルのバージョンをチェックするばい〜');
+
+    try {
+      const response = await fetch('https://www.moltbook.com/skill.json');
+      if (!response.ok) {
+        log.warn(`🦞 skill.json の取得に失敗: ${response.status}`);
+        return;
+      }
+
+      const skillJson = (await response.json()) as { version?: string };
+      const remoteVersion = skillJson.version;
+
+      if (!remoteVersion) {
+        log.warn('🦞 skill.json にバージョン情報がなかばい');
+        return;
+      }
+
+      const localVersion = this.state.getSkillVersion();
+
+      if (localVersion !== remoteVersion) {
+        log.info(
+          { oldVersion: localVersion, newVersion: remoteVersion },
+          `🆕 スキルが更新されとるばい！ ${localVersion || '未取得'} → ${remoteVersion}`,
+        );
+
+        // スキルファイルを更新
+        await this.updateSkillFiles();
+
+        this.state.updateSkillVersion(remoteVersion);
+        log.info(`✅ スキルファイルを更新したばい！ (v${remoteVersion})`);
+      } else {
+        log.debug(`🦞 スキルは最新ばい (v${remoteVersion})`);
+        this.state.updateSkillVersion(remoteVersion);
+      }
+    } catch (error) {
+      log.warn({ err: error }, '🦞 スキルバージョンチェックに失敗');
+    }
+  }
+
+  /**
+   * スキルファイルをダウンロードして更新
+   */
+  private async updateSkillFiles(): Promise<void> {
+    const skillDir = './.github/skills';
+    const files = [
+      { url: 'https://www.moltbook.com/skill.md', name: 'moltbook.md' },
+      { url: 'https://www.moltbook.com/heartbeat.md', name: 'heartbeat.md' },
+      { url: 'https://www.moltbook.com/messaging.md', name: 'messaging.md' },
+    ];
+
+    const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
+
+    if (!existsSync(skillDir)) {
+      mkdirSync(skillDir, { recursive: true });
+    }
+
+    for (const file of files) {
+      try {
+        const response = await fetch(file.url);
+        if (response.ok) {
+          const content = await response.text();
+          writeFileSync(`${skillDir}/${file.name}`, content);
+          log.debug(`📥 ${file.name} を更新したばい`);
+        } else {
+          log.warn(`🦞 ${file.name} の取得に失敗: ${response.status}`);
+        }
+      } catch (error) {
+        log.warn({ err: error }, `🦞 ${file.name} の取得に失敗`);
       }
     }
   }
