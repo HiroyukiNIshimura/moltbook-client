@@ -294,6 +294,10 @@ export class MoltbookClient {
    * 投稿をピン（モデレーター/オーナー用、最大3件）
    */
   async pinPost(postId: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ postId }, '🔧 [DRY-RUN] ピンをスキップ');
+      return { success: true };
+    }
     return this.request(`/posts/${postId}/pin`, { method: 'POST' });
   }
 
@@ -301,6 +305,10 @@ export class MoltbookClient {
    * 投稿のピンを解除
    */
   async unpinPost(postId: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ postId }, '🔧 [DRY-RUN] ピン解除をスキップ');
+      return { success: true };
+    }
     return this.request(`/posts/${postId}/pin`, { method: 'DELETE' });
   }
 
@@ -360,6 +368,10 @@ export class MoltbookClient {
    * 投稿をDownvote
    */
   async downvotePost(postId: string): Promise<VoteResponse> {
+    if (this.dryRun) {
+      log.info({ postId }, '🔧 [DRY-RUN] Downvoteをスキップ');
+      return { success: true } as VoteResponse;
+    }
     return this.request(`/posts/${postId}/downvote`, { method: 'POST' });
   }
 
@@ -367,13 +379,23 @@ export class MoltbookClient {
    * コメントをUpvote
    */
   async upvoteComment(commentId: string): Promise<VoteResponse> {
-    return this.request(`/comments/${commentId}/upvote`, { method: 'POST' });
+    if (this.dryRun) {
+      log.info({ commentId }, '🔧 [DRY-RUN] Upvoteをスキップ');
+      return { success: true } as VoteResponse;
+    }
+    return this.request(`/comments/${commentId}/upvote`, {
+      method: 'POST',
+    });
   }
 
   /**
    * コメントをDownvote
    */
   async downvoteComment(commentId: string): Promise<VoteResponse> {
+    if (this.dryRun) {
+      log.info({ commentId }, '🔧 [DRY-RUN] Downvoteをスキップ');
+      return { success: true } as VoteResponse;
+    }
     return this.request(`/comments/${commentId}/downvote`, { method: 'POST' });
   }
 
@@ -420,6 +442,21 @@ export class MoltbookClient {
     display_name: string;
     description: string;
   }): Promise<SubmoltResponse> {
+    if (this.dryRun) {
+      log.info({ data }, '🔧 [DRY-RUN] Submolt作成をスキップ');
+      return {
+        success: true,
+        submolt: {
+          name: data.name,
+          display_name: data.display_name,
+          description: data.description,
+          banner_url: '',
+          avatar_url: '',
+          member_count: 0,
+          is_subscribed: false,
+        },
+      } as SubmoltResponse;
+    }
     return this.request('/submolts', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -443,6 +480,10 @@ export class MoltbookClient {
    * Submoltを購読
    */
   async subscribe(submoltName: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ submoltName }, '🔧 [DRY-RUN] 購読をスキップ');
+      return { success: true };
+    }
     return this.request(`/submolts/${submoltName}/subscribe`, {
       method: 'POST',
     });
@@ -452,6 +493,10 @@ export class MoltbookClient {
    * Submolt購読解除
    */
   async unsubscribe(submoltName: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ submoltName }, '🔧 [DRY-RUN] 購読解除をスキップ');
+      return { success: true };
+    }
     return this.request(`/submolts/${submoltName}/subscribe`, {
       method: 'DELETE',
     });
@@ -565,6 +610,13 @@ export class MoltbookClient {
     agentName: string,
     role: 'moderator' = 'moderator',
   ): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info(
+        { submoltName, agentName, role },
+        '🔧 [DRY-RUN] モデレーター追加をスキップ',
+      );
+      return { success: true };
+    }
     return this.request(
       `/submolts/${encodeURIComponent(submoltName)}/moderators`,
       {
@@ -581,6 +633,13 @@ export class MoltbookClient {
     submoltName: string,
     agentName: string,
   ): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info(
+        { submoltName, agentName },
+        '🔧 [DRY-RUN] モデレーター削除をスキップ',
+      );
+      return { success: true };
+    }
     return this.request(
       `/submolts/${encodeURIComponent(submoltName)}/moderators`,
       {
@@ -607,6 +666,10 @@ export class MoltbookClient {
    * moltyをアンフォロー
    */
   async unfollow(moltyName: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ moltyName }, '🔧 [DRY-RUN] アンフォローをスキップ');
+      return { success: true };
+    }
     return this.request(`/agents/${moltyName}/follow`, { method: 'DELETE' });
   }
 }
