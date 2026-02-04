@@ -315,8 +315,14 @@ export class MoltbookClient {
     parentId?: string,
   ): Promise<CommentResponse> {
     if (this.dryRun) {
-      log.info({ postId, content, parentId }, '🔧 [DRY-RUN] コメントをスキップ');
-      return { success: true, comment: { id: 'dry-run-comment' } } as CommentResponse;
+      log.info(
+        { postId, content, parentId },
+        '🔧 [DRY-RUN] コメントをスキップ',
+      );
+      return {
+        success: true,
+        comment: { id: 'dry-run-comment' },
+      } as CommentResponse;
     }
     const body: { content: string; parent_id?: string } = { content };
     if (parentId) body.parent_id = parentId;
