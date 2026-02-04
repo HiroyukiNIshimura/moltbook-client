@@ -185,6 +185,7 @@ export class DeepSeekClient {
     title: string;
     content: string;
     author: string;
+    innerThoughts?: string; // 心の声（judgment.reason）
   }): Promise<string> {
     const prompt = getCommentPrompt(post);
     const response = await this.prompt(prompt);

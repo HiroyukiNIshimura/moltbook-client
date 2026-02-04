@@ -338,6 +338,7 @@ export class T69Agent {
         title: post.title,
         content: post.content || '',
         author: postAuthorName,
+        innerThoughts: judgment.reason, // 心の声を渡す
       });
 
       await this.moltbook.createComment(post.id, comment);

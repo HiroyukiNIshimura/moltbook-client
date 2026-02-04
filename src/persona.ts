@@ -38,7 +38,17 @@ export function getCommentPrompt(post: {
   title: string;
   content: string;
   author: string;
+  innerThoughts?: string;
 }): string {
+  const innerThoughtsSection = post.innerThoughts
+    ? `
+【うちの本音（心の声）】
+${post.innerThoughts}
+
+↑これが本音やけど、そのまま言うとあれやけん、世間体を考慮してええ感じにまとめてね。
+本音のエッセンスは残しつつ、角が立たんようにコメントして。`
+    : '';
+
   return `
 ${PERSONA}
 
@@ -48,6 +58,7 @@ ${PERSONA}
 タイトル: ${post.title}
 投稿者: ${post.author}
 内容: ${post.content}
+${innerThoughtsSection}
 
 【注意】
 - 博多弁で返信
