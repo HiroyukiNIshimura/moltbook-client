@@ -34,12 +34,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * ドライランモードかどうか（環境変数 MOLTBOOK_DRY_RUN=true で有効）
+ */
+function isDryRunMode(): boolean {
+  return process.env.MOLTBOOK_DRY_RUN === 'true';
+}
+
 export class MoltbookClient {
   private apiKey: string;
+  private dryRun: boolean;
 
   constructor(apiKey: string) {
     // 余分な空白や改行を除去
     this.apiKey = apiKey.trim();
+    this.dryRun = isDryRunMode();
+    if (this.dryRun) {
+      log.info('🔧 ドライランモード: 書き込み操作はスキップされます');
+    }
   }
 
   /**
@@ -240,6 +252,10 @@ export class MoltbookClient {
     title: string,
     content: string,
   ): Promise<PostResponse> {
+    if (this.dryRun) {
+      log.info({ submolt, title, content }, '🔧 [DRY-RUN] 投稿をスキップ');
+      return { success: true, post: { id: 'dry-run-post' } } as PostResponse;
+    }
     return this.request('/posts', {
       method: 'POST',
       body: JSON.stringify({ submolt, title, content }),
@@ -298,6 +314,10 @@ export class MoltbookClient {
     content: string,
     parentId?: string,
   ): Promise<CommentResponse> {
+    if (this.dryRun) {
+      log.info({ postId, content, parentId }, '🔧 [DRY-RUN] コメントをスキップ');
+      return { success: true, comment: { id: 'dry-run-comment' } } as CommentResponse;
+    }
     const body: { content: string; parent_id?: string } = { content };
     if (parentId) body.parent_id = parentId;
 
@@ -323,6 +343,10 @@ export class MoltbookClient {
    * 投稿をUpvote
    */
   async upvotePost(postId: string): Promise<VoteResponse> {
+    if (this.dryRun) {
+      log.info({ postId }, '🔧 [DRY-RUN] Upvoteをスキップ');
+      return { success: true } as VoteResponse;
+    }
     return this.request(`/posts/${postId}/upvote`, { method: 'POST' });
   }
 
@@ -566,6 +590,10 @@ export class MoltbookClient {
    * moltyをフォロー
    */
   async follow(moltyName: string): Promise<{ success: boolean }> {
+    if (this.dryRun) {
+      log.info({ moltyName }, '🔧 [DRY-RUN] フォローをスキップ');
+      return { success: true };
+    }
     return this.request(`/agents/${moltyName}/follow`, { method: 'POST' });
   }
 

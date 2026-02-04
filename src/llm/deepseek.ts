@@ -4,6 +4,7 @@
 
 import { createLogger } from '../logger';
 import { getCommentPrompt, getJudgePrompt, getPostPrompt } from '../persona';
+import { getRecentCategories, recordTopic } from '../topicTracker';
 
 const log = createLogger('deepseek');
 
@@ -201,7 +202,9 @@ export class DeepSeekClient {
     content: string;
     submolt: string;
   }> {
-    const prompt = getPostPrompt();
+    // 最近12時間のカテゴリを避ける
+    const avoidCategories = getRecentCategories(12);
+    const prompt = getPostPrompt(avoidCategories);
     const response = await this.prompt(prompt);
     const parsed = this.parseJSON<{
       title: string;
@@ -213,6 +216,9 @@ export class DeepSeekClient {
     if (parsed.submolt.startsWith('m/')) {
       parsed.submolt = parsed.submolt.slice(2);
     }
+
+    // 投稿トピックを記録
+    recordTopic(parsed.title);
 
     return parsed;
   }
