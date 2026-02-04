@@ -5,6 +5,7 @@
 import { DeepSeekClient } from './llm/deepseek';
 import { createLogger } from './logger';
 import { MoltbookClient, MoltbookError } from './moltbook/client';
+import type { Post } from './moltbook/types';
 import { StateManager } from './state/memory';
 
 const log = createLogger('agent');
@@ -62,7 +63,7 @@ export class T69Agent {
 
       // 2. フィードをチェック（30〜60分間隔）
       if (taskStatus.feedCheck.shouldRun) {
-        //await this.checkFeed();
+        await this.checkFeed();
         this.state.updateLastFeedCheck();
       } else {
         log.info(
@@ -202,6 +203,120 @@ export class T69Agent {
   }
 
   /**
+   * フィードをチェックして反応
+   */
+  private async checkFeed(): Promise<void> {
+    log.info('🦞 フィードをチェックするばい〜');
+
+    // パーソナライズドフィードではなくグローバル投稿を取得
+    const feed = await this.moltbook.getPosts({ sort: 'new', limit: 15 });
+    const posts = feed.posts || [];
+
+    log.info(`🦞 ${posts.length}件の投稿があるっちゃね`);
+
+    for (const post of posts) {
+      // 既に見た投稿はスキップ
+      if (this.state.hasSeen(post.id)) {
+        continue;
+      }
+
+      const authorName = post.author?.name ?? '不明';
+      log.info(
+        { postId: post.id, author: authorName },
+        `📖 「${post.title}」by ${authorName}`,
+      );
+
+      try {
+        await this.processPost(post);
+      } catch (error) {
+        if (error instanceof MoltbookError && error.isRateLimited) {
+          const waitSec = error.retryAfterSeconds || 20;
+          log.warn(`🦞 レート制限やん... ${waitSec}秒待つばい`);
+          await this.sleep(waitSec * 1000);
+        } else {
+          log.error({ err: error }, `🦞 投稿の処理に失敗: ${error}`);
+        }
+      }
+
+      this.state.markSeen(post.id);
+
+      // API負荷軽減のため少し待つ
+      await this.sleep(2000);
+    }
+  }
+
+  /**
+   * 投稿を処理（判断→反応）
+   */
+  private async processPost(post: Post): Promise<void> {
+    const myName = await this.getAgentName();
+    const postAuthorName = post.author?.name ?? '不明';
+
+    // LLMに判断させる
+    const judgment = await this.llm.judgePost({
+      title: post.title,
+      content: post.content || '',
+      author: postAuthorName,
+    });
+
+    log.debug({ judgment }, `判断: ${judgment.reason}`);
+
+    // 同じSubmoltでの活動を記録（自分以外）
+    if (postAuthorName !== myName && postAuthorName !== '不明') {
+      this.state.recordSameSubmoltActivity(postAuthorName);
+    }
+
+    // Upvote
+    if (judgment.should_upvote && !this.state.hasUpvoted(post.id)) {
+      await this.moltbook.upvotePost(post.id);
+      this.state.markUpvoted(post.id);
+      // 親密度を記録（自分以外）
+      if (postAuthorName !== myName && postAuthorName !== '不明') {
+        this.state.recordUpvotedPost(postAuthorName);
+      }
+      // 詳細ログ
+      const contentPreview = post.content
+        ? post.content.slice(0, 200) + (post.content.length > 200 ? '...' : '')
+        : '(コンテンツなし)';
+      log.info(
+        {
+          postId: post.id,
+          title: post.title,
+          author: postAuthorName,
+          submolt: post.submolt.name,
+          content: contentPreview,
+          upvotes: post.upvotes,
+          comments: post.comment_count,
+          reason: judgment.reason,
+        },
+        `👍 「${post.title}」by ${postAuthorName} にいいねしたばい！`,
+      );
+      await this.sleep(1000);
+    }
+
+    // コメント
+    if (judgment.should_comment && !this.state.hasCommented(post.id)) {
+      const comment = await this.llm.generateComment({
+        title: post.title,
+        content: post.content || '',
+        author: postAuthorName,
+        innerThoughts: judgment.reason, // 心の声を渡す
+      });
+
+      await this.moltbook.createComment(post.id, comment);
+      this.state.markCommented(post.id);
+      // 親密度を記録（自分以外）
+      if (postAuthorName !== myName && postAuthorName !== '不明') {
+        this.state.recordRepliedTo(postAuthorName);
+      }
+      log.info(`💬 「${post.title}」にコメント: "${comment}"`);
+
+      // コメントのレート制限（20秒）
+      await this.sleep(20000);
+    }
+  }
+
+  /**
    * 自分の投稿へのリプライをチェックして親密度を記録 & 返信
    */
   private async checkReplies(): Promise<void> {
@@ -257,6 +372,16 @@ export class T69Agent {
               },
               `💌 ${commentAuthorName}からリプライがあったばい！「${comment.content}」`,
             );
+
+            // リプライにUpvote（感謝の意を込めて）
+            try {
+              await this.moltbook.upvoteComment(comment.id);
+              this.state.recordUpvotedComment(commentAuthorName);
+              log.info(`👍 ${commentAuthorName}のコメントにいいね！`);
+              await this.sleep(1000);
+            } catch (upvoteError) {
+              log.warn({ err: upvoteError }, '🦞 コメントのUpvoteに失敗');
+            }
 
             newRepliesCount++;
 
