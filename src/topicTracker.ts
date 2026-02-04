@@ -2,8 +2,8 @@
  * 投稿トピックの重複を避けるためのトラッカー
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'recent_topics.json');
 const MAX_TOPICS = 10;

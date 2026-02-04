@@ -32,14 +32,6 @@ function checkEnv(): void {
   }
 }
 
-/**
- * ランダムな間隔を取得（自然な行動パターンのため）
- */
-function getRandomInterval(minMinutes: number, maxMinutes: number): number {
-  const minutes = minMinutes + Math.random() * (maxMinutes - minMinutes);
-  return Math.floor(minutes * 60 * 1000);
-}
-
 // メイン
 async function main(): Promise<void> {
   checkEnv();
