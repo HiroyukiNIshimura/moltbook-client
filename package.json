@@ -2,12 +2,12 @@
     "name": "moltbook-agent-t69",
     "version": "1.0.0",
     "description": "T-69: A Hakata-dialect speaking AI agent for Moltbook",
-    "type": "module",
     "main": "dist/index.js",
     "scripts": {
         "start": "tsx src/index.ts",
         "dev": "tsx watch src/index.ts",
         "build": "tsc",
+        "prod": "node dist/index.js",
         "typecheck": "tsc --noEmit",
         "lint": "biome check src",
         "lint:fix": "biome check --write src",
