@@ -63,7 +63,7 @@ export class T69Agent {
 
       // 2. フィードをチェック（30〜60分間隔）
       if (taskStatus.feedCheck.shouldRun) {
-        await this.checkFeed();
+        //await this.checkFeed();
         this.state.updateLastFeedCheck();
       } else {
         log.info(
@@ -246,10 +246,14 @@ export class T69Agent {
   }
 
   /**
-   * 自分の投稿へのリプライをチェックして親密度を記録
+   * 自分の投稿へのリプライをチェックして親密度を記録 & 返信
    */
   private async checkReplies(): Promise<void> {
     log.info('🦞 リプライをチェックするばい〜');
+
+    // 1回のチェックで返信する最大数（スパム防止）
+    const MAX_REPLIES_PER_CHECK = 3;
+    let repliesSent = 0;
 
     try {
       const myName = await this.getAgentName();
@@ -290,11 +294,39 @@ export class T69Agent {
             this.state.markSeen(commentKey);
 
             log.info(
-              { from: commentAuthorName, postTitle: post.title },
-              `💌 ${commentAuthorName}からリプライがあったばい！`,
+              {
+                from: commentAuthorName,
+                postTitle: post.title,
+                content: comment.content,
+              },
+              `💌 ${commentAuthorName}からリプライがあったばい！「${comment.content}」`,
             );
 
             newRepliesCount++;
+
+            // 返信上限に達していなければ返信を試みる
+            if (repliesSent < MAX_REPLIES_PER_CHECK) {
+              try {
+                const replied = await this.maybeReplyToComment(
+                  post,
+                  comment,
+                  commentAuthorName,
+                );
+                if (replied) {
+                  repliesSent++;
+                  // コメントのレート制限（20秒）
+                  await this.sleep(20000);
+                }
+              } catch (error) {
+                if (error instanceof MoltbookError && error.isRateLimited) {
+                  const waitSec = error.retryAfterSeconds || 20;
+                  log.warn(`🦞 返信のレート制限やん... ${waitSec}秒待つばい`);
+                  await this.sleep(waitSec * 1000);
+                } else {
+                  log.warn({ err: error }, '🦞 返信の処理に失敗');
+                }
+              }
+            }
           }
 
           // API負荷軽減
@@ -305,13 +337,60 @@ export class T69Agent {
       }
 
       if (newRepliesCount > 0) {
-        log.info(`🦞 ${newRepliesCount}件の新しいリプライを検知したばい！`);
+        log.info(
+          `🦞 ${newRepliesCount}件の新しいリプライを検知、${repliesSent}件に返信したばい！`,
+        );
       } else {
         log.debug('🦞 新しいリプライはなかったばい');
       }
     } catch (error) {
       log.warn({ err: error }, '🦞 リプライチェックに失敗');
     }
+  }
+
+  /**
+   * コメントに返信すべきか判断し、必要なら返信する
+   */
+  private async maybeReplyToComment(
+    post: { id: string; title: string; content?: string },
+    comment: { id: string; content: string },
+    commenterName: string,
+  ): Promise<boolean> {
+    // LLMに返信すべきか判断させる
+    const judgment = await this.llm.judgeReply({
+      myPostTitle: post.title,
+      myPostContent: post.content || '',
+      commenterName,
+      commentContent: comment.content,
+    });
+
+    log.debug(
+      { judgment, commenterName },
+      `返信判断: ${judgment.should_reply ? '返信する' : 'スキップ'} - ${judgment.reason}`,
+    );
+
+    if (!judgment.should_reply) {
+      return false;
+    }
+
+    // 返信を生成
+    const reply = await this.llm.generateReply({
+      myPostTitle: post.title,
+      myPostContent: post.content || '',
+      commenterName,
+      commentContent: comment.content,
+      innerThoughts: judgment.reason,
+    });
+
+    // 返信を投稿
+    await this.moltbook.createComment(post.id, reply);
+
+    log.info(
+      { to: commenterName, postTitle: post.title },
+      `💬 ${commenterName}に返信したばい: "${reply}"`,
+    );
+
+    return true;
   }
 
   /**

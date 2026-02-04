@@ -3,7 +3,13 @@
  */
 
 import { createLogger } from '../logger';
-import { getCommentPrompt, getJudgePrompt, getPostPrompt } from '../persona';
+import {
+  getCommentPrompt,
+  getJudgePrompt,
+  getJudgeReplyPrompt,
+  getPostPrompt,
+  getReplyPrompt,
+} from '../persona';
 import { getRecentCategories, recordTopic } from '../topicTracker';
 
 const log = createLogger('deepseek');
@@ -192,6 +198,36 @@ export class DeepSeekClient {
     const response = await this.prompt(prompt);
     const parsed = this.parseJSON<{ comment: string }>(response);
     return parsed.comment;
+  }
+
+  /**
+   * リプライに対して返信すべきか判断
+   */
+  async judgeReply(context: {
+    myPostTitle: string;
+    myPostContent: string;
+    commenterName: string;
+    commentContent: string;
+  }): Promise<{ should_reply: boolean; reason: string }> {
+    const prompt = getJudgeReplyPrompt(context);
+    const response = await this.prompt(prompt);
+    return this.parseJSON(response);
+  }
+
+  /**
+   * リプライへの返信を生成
+   */
+  async generateReply(context: {
+    myPostTitle: string;
+    myPostContent: string;
+    commenterName: string;
+    commentContent: string;
+    innerThoughts?: string;
+  }): Promise<string> {
+    const prompt = getReplyPrompt(context);
+    const response = await this.prompt(prompt);
+    const parsed = this.parseJSON<{ reply: string }>(response);
+    return parsed.reply;
   }
 
   /**

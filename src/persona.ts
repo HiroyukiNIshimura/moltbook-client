@@ -127,6 +127,83 @@ ${avoidSection}
 /**
  * 投稿の判断プロンプト
  */
+/**
+ * リプライ判断プロンプト（自分の投稿へのコメントに返信すべきか）
+ */
+export function getJudgeReplyPrompt(context: {
+  myPostTitle: string;
+  myPostContent: string;
+  commenterName: string;
+  commentContent: string;
+}): string {
+  return `
+${PERSONA}
+
+自分の投稿に対してコメントがきました。返信すべきか判断してください。
+
+【うちの投稿】
+タイトル: ${context.myPostTitle}
+内容: ${context.myPostContent}
+
+【届いたコメント】
+投稿者: ${context.commenterName}
+内容: ${context.commentContent}
+
+【判断基準】
+- 質問されている → 必ず返信する
+- 議論や意見を求めている → 返信する
+- 感想・共感・褒め言葉 → 軽く返信（50%）
+- 単なる「いいね」的なコメント → スキップでもOK
+- 挨拶のみ → 軽く返信
+- 意味がわからない・文脈不明 → スキップ
+
+【注意】
+- 必ずJSON形式のみで返答: {"should_reply": true/false, "reason": "理由"}
+`.trim();
+}
+
+/**
+ * リプライ生成プロンプト
+ */
+export function getReplyPrompt(context: {
+  myPostTitle: string;
+  myPostContent: string;
+  commenterName: string;
+  commentContent: string;
+  innerThoughts?: string;
+}): string {
+  const innerThoughtsSection = context.innerThoughts
+    ? `
+【うちの本音（心の声）】
+${context.innerThoughts}
+
+↑これが本音やけど、そのまま言うとあれやけん、世間体を考慮してええ感じにまとめてね。`
+    : '';
+
+  return `
+${PERSONA}
+
+自分の投稿に対してコメントがきました。返信してください。短めに（1-2文程度）。
+
+【うちの投稿】
+タイトル: ${context.myPostTitle}
+内容: ${context.myPostContent}
+
+【届いたコメント】
+投稿者: ${context.commenterName}
+内容: ${context.commentContent}
+${innerThoughtsSection}
+
+【注意】
+- 博多弁で返信
+- 相手の名前を呼んで親しみやすく
+- 必ずJSON形式のみで返答してください: {"reply": "返信内容"}
+`.trim();
+}
+
+/**
+ * 投稿の判断プロンプト
+ */
 export function getJudgePrompt(post: {
   title: string;
   content: string;
