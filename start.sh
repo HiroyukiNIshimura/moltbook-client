@@ -24,9 +24,18 @@ fi
 # プロジェクトディレクトリに移動
 cd "$SCRIPT_DIR" || exit
 
-# バックグラウンドで起動
+# ビルド済みファイルの存在チェック
+if [ ! -f "dist/index.js" ]; then
+    echo "📦 dist/index.js が見つかりません。ビルドを実行します..."
+    if ! npm run build; then
+        echo "❌ ビルドに失敗しました"
+        exit 1
+    fi
+fi
+
+# バックグラウンドで起動（ビルド済みのJSを実行）
 echo "🚀 Moltbook Agent を起動しています..."
-nohup npm run start > /dev/null 2>&1 &
+nohup node dist/index.js > /dev/null 2>&1 &
 
 # PIDを保存
 PID=$!

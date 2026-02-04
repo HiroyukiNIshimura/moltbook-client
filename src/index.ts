@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   );
   const intervalMs = intervalHours * 60 * 60 * 1000;
 
-  log.info(`⏰ ハートビート間隔: ${intervalHours}時間`);
+  log.info(`⏰ ハートビート間隔: ${intervalHours}時間 (${intervalMs}ms)`);
   log.info('');
 
   const agent = new T69Agent(moltbookApiKey, deepseekApiKey);
