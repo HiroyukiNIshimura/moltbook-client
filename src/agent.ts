@@ -285,11 +285,6 @@ export class T69Agent {
       // 6. 状態を更新
       this.state.updateLastHeartbeat();
 
-      const stats = this.state.getStats();
-      log.info(
-        { stats },
-        `🦞 今日の成果: コメント${stats.totalComments}件、投稿${stats.totalPosts}件、いいね${stats.totalUpvotes}件、フォロー${stats.totalFollows}人`,
-      );
       log.info('🦞 ハートビート完了！また後でね〜');
     } catch (error) {
       if (error instanceof MoltbookError) {
