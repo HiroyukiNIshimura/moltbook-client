@@ -12,7 +12,7 @@
  */
 
 import 'dotenv/config';
-import { T69Agent } from './src/agent';
+import { T69Agent } from '../src/agent';
 
 const args = process.argv.slice(2);
 const repoIndex = args.indexOf('--repo');

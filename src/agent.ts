@@ -265,8 +265,11 @@ export class T69Agent {
 
       // 4. たまに投稿する（60〜120分間隔で試行）
       if (taskStatus.postAttempt.shouldRun) {
-        await this.maybeCreatePost();
-        this.state.updateLastPostAttempt();
+        const didAttempt = await this.maybeCreatePost();
+        // 実際に投稿を試みた場合のみ時刻を更新（確率スキップ時は更新しない）
+        if (didAttempt) {
+          this.state.updateLastPostAttempt();
+        }
       } else {
         log.info(
           `🦞 投稿試行はまだ早かばい（${taskStatus.postAttempt.minutesSinceLast}分前）`,
@@ -688,13 +691,14 @@ export class T69Agent {
 
   /**
    * たまに投稿する（夕方は開発進捗を優先）
+   * @returns true: 実際に投稿を試みた, false: 確率でスキップ
    */
-  private async maybeCreatePost(): Promise<void> {
+  private async maybeCreatePost(): Promise<boolean> {
     // 投稿制限チェック
     if (!this.state.canPost()) {
       const minutes = this.state.getMinutesUntilCanPost();
       log.info(`🦞 まだ投稿できんばい... あと${minutes}分待たんと`);
-      return;
+      return true; // レート制限は試みたことにする
     }
 
     const hour = new Date().getHours();
@@ -704,7 +708,7 @@ export class T69Agent {
     if (hour >= 17 && hour < 19) {
       const posted = await this.tryPostDevProgress();
       if (posted) {
-        return; // 開発進捗を投稿したら終了
+        return true; // 開発進捗を投稿したら終了
       }
       // 新コミットがなければ通常投稿へ
       log.debug('🦞 開発進捗はなかったけん、通常投稿を試すばい');
@@ -724,7 +728,7 @@ export class T69Agent {
       log.info(
         `🦞 今回は投稿せんでいいかな〜 (${level}: ${(postChance[level] * 100).toFixed(0)}%の壁)`,
       );
-      return;
+      return false; // 確率スキップは「試みなかった」
     }
 
     log.info(`🦞 なんか投稿するばい！ (活動レベル: ${level})`);
@@ -748,6 +752,7 @@ export class T69Agent {
         throw error;
       }
     }
+    return true; // 投稿を試みた
   }
 
   /**
