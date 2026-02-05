@@ -692,7 +692,7 @@ export class T69Agent {
   }
 
   /**
-   * たまに投稿する
+   * たまに投稿する（夕方は開発進捗を優先）
    */
   private async maybeCreatePost(): Promise<void> {
     // 投稿制限チェック
@@ -702,8 +702,20 @@ export class T69Agent {
       return;
     }
 
-    // 活動レベルに応じた投稿確率
+    const hour = new Date().getHours();
     const { level } = this.getActivityLevel();
+
+    // 夕方（17〜19時）は開発進捗を優先
+    if (hour >= 17 && hour < 19) {
+      const posted = await this.tryPostDevProgress();
+      if (posted) {
+        return; // 開発進捗を投稿したら終了
+      }
+      // 新コミットがなければ通常投稿へ
+      log.debug('🦞 開発進捗はなかったけん、通常投稿を試すばい');
+    }
+
+    // 活動レベルに応じた投稿確率
     const postChance: Record<ActivityLevel, number> = {
       sleeping: 0,
       drowsy: 0.1, // 眠い時は10%
@@ -835,5 +847,155 @@ export class T69Agent {
         `- [${type}] ${result.title || result.content.slice(0, 50)}... (類似度: ${(result.similarity * 100).toFixed(0)}%)`,
       );
     }
+  }
+
+  /**
+   * GitHubリポジトリの最近のコミットを取得
+   */
+  private async getRecentCommits(
+    repo: string,
+    count = 5,
+  ): Promise<Array<{ message: string; date: string; sha: string }>> {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'T69-Agent',
+    };
+
+    const token = process.env.GITHUB_TOKEN;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${repo}/commits?per_page=${count}`,
+        { headers },
+      );
+
+      if (!res.ok) {
+        log.warn(`🦞 GitHub API エラー: ${res.status}`);
+        return [];
+      }
+
+      const commits = (await res.json()) as Array<{
+        commit: { message: string; author: { date: string } };
+        sha: string;
+      }>;
+
+      return commits.map((c) => ({
+        message: c.commit.message.split('\n')[0], // 1行目のみ
+        date: c.commit.author.date,
+        sha: c.sha.slice(0, 7),
+      }));
+    } catch (error) {
+      log.warn({ err: error }, '🦞 GitHub コミット取得に失敗');
+      return [];
+    }
+  }
+
+  /**
+   * 開発進捗の投稿を試みる（内部用）
+   * @returns 投稿したらtrue、スキップしたらfalse
+   */
+  private async tryPostDevProgress(
+    repo = 'HiroyukiNIshimura/pecus-aspire',
+  ): Promise<boolean> {
+    log.info(`🦞 ${repo} の開発進捗をチェックするばい...`);
+
+    const commits = await this.getRecentCommits(repo, 5);
+
+    if (commits.length === 0) {
+      log.info('🦞 最近のコミットがないばい');
+      return false;
+    }
+
+    // 前回投稿時と同じコミットならスキップ
+    const latestSha = commits[0].sha;
+    const lastPostedSha = this.state.getLastDevProgressCommitSha();
+    if (latestSha === lastPostedSha) {
+      log.info(
+        { sha: latestSha },
+        '🦞 前回投稿時と同じコミットやけん、スキップするばい',
+      );
+      return false;
+    }
+
+    // 最新コミットからの経過時間
+    const latestCommitDate = new Date(commits[0].date);
+    const hoursSinceLastCommit =
+      (Date.now() - latestCommitDate.getTime()) / (1000 * 60 * 60);
+
+    // コミット一覧をフォーマット
+    const commitList = commits
+      .slice(0, 3)
+      .map((c) => `- ${c.message} (\`${c.sha}\`)`)
+      .join('\n');
+
+    const prompt = `あなたは博多弁で話すエンジニアのエージェント「T-69」です。
+自分が開発しているプロジェクトの進捗を Moltbook に投稿します。
+
+## リポジトリ情報
+- リポジトリ: ${repo}
+- 最終コミットからの経過: ${Math.floor(hoursSinceLastCommit)}時間前
+
+## 最近のコミット
+${commitList}
+
+## 指示
+上記のコミット情報をもとに、開発進捗の投稿を作成してください。
+- タイトルは30文字以内で、キャッチーに
+- 本文は技術的な内容を楽しく伝える（200〜400文字程度）
+- 博多弁で書く
+- 絵文字を適度に使う
+
+以下のJSON形式で出力してください:
+\`\`\`json
+{
+  "title": "タイトル",
+  "content": "本文",
+  "submolt": "tech"
+}
+\`\`\``;
+
+    const response = await this.llm.prompt(prompt);
+
+    // JSONを抽出
+    const jsonMatch =
+      response.match(/```json\s*([\s\S]*?)\s*```/) ||
+      response.match(/(\{[\s\S]*\})/);
+
+    if (!jsonMatch) {
+      log.error('🦞 投稿内容の生成に失敗したばい');
+      return false;
+    }
+
+    const postIdea = JSON.parse(jsonMatch[1]) as {
+      title: string;
+      content: string;
+      submolt: string;
+    };
+
+    await this.moltbook.createPost(
+      postIdea.submolt || 'tech',
+      postIdea.title,
+      postIdea.content,
+    );
+
+    this.state.updateLastPostTime();
+    this.state.updateLastDevProgressCommitSha(latestSha);
+    log.info(
+      { repo, commits: commits.length, hoursSinceLastCommit, sha: latestSha },
+      `📝 開発進捗を投稿したばい！「${postIdea.title}」`,
+    );
+    return true;
+  }
+
+  /**
+   * 開発進捗を投稿（外部呼び出し用・テスト用）
+   */
+  async postDevProgress(
+    repo = 'HiroyukiNIshimura/pecus-aspire',
+  ): Promise<void> {
+    await this.tryPostDevProgress(repo);
   }
 }

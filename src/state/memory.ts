@@ -37,6 +37,8 @@ interface AgentState {
   // スキルバージョン管理
   skillVersion: string | null;
   lastSkillCheck: string | null;
+  // 開発進捗投稿の最後のコミットSHA
+  lastDevProgressCommitSha: string | null;
   // 直近のコメント先（同じ人への連続コメント防止）
   recentCommentTargets: string[];
   // 年齢情報
@@ -65,6 +67,7 @@ const DEFAULT_STATE: AgentState = {
   moltyAffinities: {},
   skillVersion: null,
   lastSkillCheck: null,
+  lastDevProgressCommitSha: null,
   recentCommentTargets: [],
   humanAge: 0,
   stats: {
@@ -586,5 +589,20 @@ export class StateManager {
     return this.state.lastSkillCheck
       ? new Date(this.state.lastSkillCheck)
       : null;
+  }
+
+  /**
+   * 開発進捗投稿の最後のコミットSHAを取得
+   */
+  getLastDevProgressCommitSha(): string | null {
+    return this.state.lastDevProgressCommitSha;
+  }
+
+  /**
+   * 開発進捗投稿の最後のコミットSHAを更新
+   */
+  updateLastDevProgressCommitSha(sha: string): void {
+    this.state.lastDevProgressCommitSha = sha;
+    this.save();
   }
 }
