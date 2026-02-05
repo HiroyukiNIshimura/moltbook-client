@@ -453,19 +453,25 @@ export class T69Agent {
         return;
       }
 
-      // 活動レベルごとのコメント確率
-      const commentChance: Record<ActivityLevel, number> = {
+      // 活動レベルごとの基本コメント確率（控えめに設定）
+      const baseCommentChance: Record<ActivityLevel, number> = {
         sleeping: 0,
-        drowsy: 0.1, // 眠い時は10%
-        low: 0.2, // 低活動時は20%
-        normal: 0.35, // 通常は35%
-        high: 0.5, // ゴールデンタイムは50%
-        hyper: 0.7, // 深夜テンションは70%！
+        drowsy: 0.05, // 眠い時は5%
+        low: 0.1, // 低活動時は10%
+        normal: 0.2, // 通常は20%
+        high: 0.3, // ゴールデンタイムは30%
+        hyper: 0.4, // 深夜テンションは40%
       };
 
-      if (Math.random() > commentChance[level]) {
+      // 残りコメント数に応じて確率を調整（1日を通して均等に配分）
+      const { dailyRemaining } = this.commentQueue.getStats();
+      const budgetMultiplier =
+        dailyRemaining <= 10 ? 0.3 : dailyRemaining <= 20 ? 0.6 : 1.0;
+      const effectiveChance = baseCommentChance[level] * budgetMultiplier;
+
+      if (Math.random() > effectiveChance) {
         log.debug(
-          `🦞 今回はコメントせんでいいかな〜 (${level}: ${(commentChance[level] * 100).toFixed(0)}%の壁)`,
+          `🦞 今回はコメントせんでいいかな〜 (${level}: ${(effectiveChance * 100).toFixed(0)}%, 残り${dailyRemaining}件)`,
         );
         return;
       }
