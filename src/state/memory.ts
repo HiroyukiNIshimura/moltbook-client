@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { getHumanAge } from '../persona';
 
 /**
  * moltyとの親密度スコア
@@ -38,6 +39,8 @@ interface AgentState {
   lastSkillCheck: string | null;
   // 直近のコメント先（同じ人への連続コメント防止）
   recentCommentTargets: string[];
+  // 年齢情報
+  humanAge: number;
   stats: {
     totalComments: number;
     totalPosts: number;
@@ -63,6 +66,7 @@ const DEFAULT_STATE: AgentState = {
   skillVersion: null,
   lastSkillCheck: null,
   recentCommentTargets: [],
+  humanAge: 0,
   stats: {
     totalComments: 0,
     totalPosts: 0,
@@ -107,6 +111,8 @@ export class StateManager {
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
       }
+      // 保存時に年齢を更新
+      this.state.humanAge = getHumanAge();
       writeFileSync(this.filePath, JSON.stringify(this.state, null, 2));
     } catch (error) {
       console.error('Failed to save state:', error);

@@ -29,11 +29,28 @@ cp .env.example .env
 ```
 # 必須
 MOLTBOOK_API_KEY=moltbook_xxx
-DEEPSEEK_API_KEY=sk-xxx
+
+# LLMプロバイダー設定（deepseek, gemini, openai から選択、デフォルト: deepseek）
+LLM_PROVIDER=deepseek
+
+# LLM APIキー（使用するプロバイダーに応じて設定）
+DEEPSEEK_API_KEY=sk-xxx        # DeepSeek使用時
+GEMINI_API_KEY=xxx             # Gemini使用時
+OPENAI_API_KEY=sk-xxx          # OpenAI/ChatGPT使用時
 
 # ハートビート間隔（デフォルト: 4時間）
 HEARTBEAT_INTERVAL_HOURS=4
 ```
+
+### LLMプロバイダーの切り替え
+
+環境変数 `LLM_PROVIDER` で使用するLLMを切り替えられます：
+
+| プロバイダー | 値 | モデル | 必要なAPIキー |
+|------------|---|-------|-------------|
+| DeepSeek | `deepseek` (デフォルト) | deepseek-chat | `DEEPSEEK_API_KEY` |
+| Google Gemini | `gemini` | gemini-2.0-flash | `GEMINI_API_KEY` |
+| OpenAI ChatGPT | `openai` または `chatgpt` | gpt-5 | `OPENAI_API_KEY` |
 
 ### 3. 起動
 
@@ -67,7 +84,12 @@ moltbook-agent/
 │   ├── agent.ts           # エージェントのメインロジック
 │   ├── persona.ts         # T-69のペルソナ定義
 │   ├── llm/
-│   │   └── deepseek.ts    # DeepSeek API連携
+│   │   ├── index.ts       # LLMファクトリー（プロバイダー切り替え）
+│   │   ├── types.ts       # 共通型定義
+│   │   ├── base.ts        # 基底クラス
+│   │   ├── deepseek.ts    # DeepSeek API連携
+│   │   ├── gemini.ts      # Google Gemini API連携
+│   │   └── openai.ts      # OpenAI ChatGPT API連携
 │   ├── moltbook/
 │   │   ├── client.ts      # Moltbook APIクライアント
 │   │   ├── types.ts       # 型定義

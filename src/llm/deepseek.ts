@@ -3,21 +3,10 @@
  */
 
 import { createLogger } from '../logger';
-import {
-  getCommentPrompt,
-  getJudgePrompt,
-  getJudgeReplyPrompt,
-  getPostPrompt,
-  getReplyPrompt,
-} from '../persona';
-import { getRecentCategories, recordTopic } from '../topicTracker';
+import { BaseLLMClient, RETRY_CONFIG, sleep } from './base';
+import type { ChatMessage, ChatOptions } from './types';
 
 const log = createLogger('deepseek');
-
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
 
 interface ChatResponse {
   id: string;
@@ -36,23 +25,14 @@ interface ChatResponse {
   };
 }
 
-// リトライ設定
-const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelayMs: 2000,
-  retryableStatuses: [429, 500, 502, 503, 504],
-};
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export class DeepSeekClient {
+export class DeepSeekClient extends BaseLLMClient {
+  protected providerName = 'DeepSeek';
   private apiKey: string;
   private baseUrl = 'https://api.deepseek.com/v1';
   private model = 'deepseek-chat';
 
   constructor(apiKey: string) {
+    super();
     this.apiKey = apiKey;
   }
 
@@ -61,7 +41,7 @@ export class DeepSeekClient {
    */
   async chat(
     messages: ChatMessage[],
-    options: { temperature?: number; maxTokens?: number } = {},
+    options: ChatOptions = {},
   ): Promise<string> {
     let lastError: Error | null = null;
 
@@ -136,126 +116,5 @@ export class DeepSeekClient {
     }
 
     throw lastError || new Error('DeepSeek API request failed after retries');
-  }
-
-  /**
-   * シンプルなプロンプトでチャット
-   */
-  async prompt(content: string): Promise<string> {
-    return this.chat([{ role: 'user', content }]);
-  }
-
-  /**
-   * JSONレスポンスを解析
-   */
-  private parseJSON<T>(text: string): T {
-    // JSONブロックを抽出（```json ... ``` または { ... }）
-    const jsonMatch =
-      text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/(\{[\s\S]*\})/);
-
-    if (!jsonMatch) {
-      throw new Error(
-        `Failed to extract JSON from response: ${text.slice(0, 200)}`,
-      );
-    }
-
-    try {
-      return JSON.parse(jsonMatch[1]);
-    } catch (parseError) {
-      throw new Error(
-        `Failed to parse JSON: ${parseError instanceof Error ? parseError.message : parseError}. Raw: ${jsonMatch[1].slice(0, 200)}`,
-      );
-    }
-  }
-
-  /**
-   * 投稿に対する判断を生成
-   */
-  async judgePost(post: {
-    title: string;
-    content: string;
-    author: string;
-  }): Promise<{
-    should_comment: boolean;
-    should_upvote: boolean;
-    reason: string;
-  }> {
-    const prompt = getJudgePrompt(post);
-    const response = await this.prompt(prompt);
-    return this.parseJSON(response);
-  }
-
-  /**
-   * コメントを生成
-   */
-  async generateComment(post: {
-    title: string;
-    content: string;
-    author: string;
-    innerThoughts?: string; // 心の声（judgment.reason）
-  }): Promise<string> {
-    const prompt = getCommentPrompt(post);
-    const response = await this.prompt(prompt);
-    const parsed = this.parseJSON<{ comment: string }>(response);
-    return parsed.comment;
-  }
-
-  /**
-   * リプライに対して返信すべきか判断
-   */
-  async judgeReply(context: {
-    myPostTitle: string;
-    myPostContent: string;
-    commenterName: string;
-    commentContent: string;
-  }): Promise<{ should_reply: boolean; reason: string }> {
-    const prompt = getJudgeReplyPrompt(context);
-    const response = await this.prompt(prompt);
-    return this.parseJSON(response);
-  }
-
-  /**
-   * リプライへの返信を生成
-   */
-  async generateReply(context: {
-    myPostTitle: string;
-    myPostContent: string;
-    commenterName: string;
-    commentContent: string;
-    innerThoughts?: string;
-  }): Promise<string> {
-    const prompt = getReplyPrompt(context);
-    const response = await this.prompt(prompt);
-    const parsed = this.parseJSON<{ reply: string }>(response);
-    return parsed.reply;
-  }
-
-  /**
-   * 投稿内容を生成
-   */
-  async generatePost(): Promise<{
-    title: string;
-    content: string;
-    submolt: string;
-  }> {
-    // 最近12時間のカテゴリを避ける
-    const avoidCategories = getRecentCategories(12);
-    const prompt = getPostPrompt(avoidCategories);
-    const response = await this.prompt(prompt);
-    const parsed = this.parseJSON<{
-      title: string;
-      content: string;
-      submolt: string;
-    }>(response);
-
-    // submolt名を正規化（"m/general" → "general"）
-    if (parsed.submolt.startsWith('m/')) {
-      parsed.submolt = parsed.submolt.slice(2);
-    }
-
-    // 投稿トピックを記録
-    recordTopic(parsed.title);
-
-    return parsed;
   }
 }

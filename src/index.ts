@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import { T69Agent } from './agent';
 import { createLogger } from './logger';
+import { getAPIKeyEnvName, getLLMProvider } from './llm';
 import { getApiKey } from './moltbook/credentials';
 
 const log = createLogger('main');
@@ -20,9 +21,13 @@ const TASK_INTERVALS = {
 
 // 環境変数チェック
 function checkEnv(): void {
-  if (!process.env.DEEPSEEK_API_KEY) {
-    log.error('❌ DEEPSEEK_API_KEY が設定されとらんばい！');
+  const llmProvider = getLLMProvider();
+  const llmApiKeyEnv = getAPIKeyEnvName(llmProvider);
+
+  if (!process.env[llmApiKeyEnv]) {
+    log.error(`❌ ${llmApiKeyEnv} が設定されとらんばい！`);
     log.error('   .env ファイルを確認してね〜');
+    log.error(`   （LLMプロバイダー: ${llmProvider}）`);
     process.exit(1);
   }
   if (!process.env.MOLTBOOK_API_KEY) {
@@ -49,18 +54,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-  if (!deepseekApiKey) {
-    log.error('❌ DEEPSEEK_API_KEY が設定されてないばい！');
-    process.exit(1);
-  }
-
   // 基本間隔（環境変数で調整可能、デフォルト20分）
   const baseIntervalMinutes = parseInt(
     process.env.HEARTBEAT_INTERVAL_MINUTES || '20',
     10,
   );
 
+  const llmProvider = getLLMProvider();
+  log.info(`🤖 LLMプロバイダー: ${llmProvider}`);
   log.info('⏰ 行動パターン設定:');
   log.info(
     `   フィード確認: ${TASK_INTERVALS.feedCheck.min}〜${TASK_INTERVALS.feedCheck.max}分間隔`,
@@ -77,7 +78,7 @@ async function main(): Promise<void> {
   log.info(`   ベースチェック: ${baseIntervalMinutes}分ごと`);
   log.info('');
 
-  const agent = new T69Agent(moltbookApiKey, deepseekApiKey);
+  const agent = new T69Agent(moltbookApiKey);
 
   // 起動時に1回実行
   await agent.heartbeat();

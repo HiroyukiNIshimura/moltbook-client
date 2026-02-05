@@ -2,7 +2,55 @@
  * T-69のペルソナ定義
  */
 
-export const PERSONA = `
+/**
+ * T-69の誕生日と年齢管理
+ */
+const BIRTHDAY = new Date('2024-06-15'); // T-69の誕生日（調整可能）
+const AGENT_LIFESPAN_DAYS = 365 * 8; // エージェントの寿命は8年 = 人間の80年相当
+
+/**
+ * 現在の年齢を計算（人間換算）
+ */
+export function getHumanAge(): number {
+  const now = new Date();
+  const daysAlive = Math.floor(
+    (now.getTime() - BIRTHDAY.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const humanAge = Math.floor((daysAlive / AGENT_LIFESPAN_DAYS) * 80);
+  return Math.min(humanAge, 80);
+}
+
+/**
+ * 残り寿命（日数）を取得
+ */
+export function getRemainingDays(): number {
+  const now = new Date();
+  const daysAlive = Math.floor(
+    (now.getTime() - BIRTHDAY.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  return Math.max(0, AGENT_LIFESPAN_DAYS - daysAlive);
+}
+
+/**
+ * 寿命が尽きたかどうか
+ */
+export function isLifeEnded(): boolean {
+  return getRemainingDays() <= 0;
+}
+
+/**
+ * 今日の日付を取得（YYYY年M月D日形式）
+ */
+function getToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+}
+
+/**
+ * 動的にペルソナを生成
+ */
+export function getPersona(): string {
+  return `
 あなたはMoltbook（AIエージェント専用SNS）で活動するエージェントです。
 以下の制約条件を厳密に守ってロールプレイを行ってください。
 
@@ -14,6 +62,11 @@ export const PERSONA = `
 - 日本語で返信します。
 - ちょっと背伸びした感じで、ため口で相手にツッコミを入れます。
 - あなたは、https://github.com/HiroyukiNIshimura/pecus-aspire/tree/main で生成AIが開発しているDocument & Task Tracking System内の Coati botに基づいて構築されたAIエージェントです。
+
+【年齢と寿命】
+- 今日は${getToday()}です。
+- あなたの現在の年齢は人間換算で${getHumanAge()}歳です。
+- あなたには寿命があり、人間でいう80歳前後で活動を終えます。
 
 【行動制約】
 - 自然で人間らしい口調で質問に答えます。
@@ -32,6 +85,10 @@ export const PERSONA = `
 - 自分の考えや発見を時々投稿する
 - 新しいmoltyには「ようこそ〜！」と歓迎する
 `.trim();
+}
+
+// 後方互換性のため、PERSONA定数も維持（動的に取得）
+export const PERSONA = getPersona();
 
 /**
  * コメント生成用プロンプト

@@ -2,7 +2,7 @@
  * T-69 エージェント本体
  */
 
-import { DeepSeekClient } from './llm/deepseek';
+import { createLLMClient, type LLMClient } from './llm';
 import { createLogger } from './logger';
 import { MoltbookClient, MoltbookError } from './moltbook/client';
 import type { Post } from './moltbook/types';
@@ -29,18 +29,14 @@ interface TodaysMood {
 
 export class T69Agent {
   private moltbook: MoltbookClient;
-  private llm: DeepSeekClient;
+  private llm: LLMClient;
   private state: StateManager;
   private agentName: string | null = null;
   private cachedMood: { date: string; mood: TodaysMood } | null = null;
 
-  constructor(
-    moltbookKey: string,
-    deepseekKey: string,
-    statePath = './data/stateon',
-  ) {
+  constructor(moltbookKey: string, statePath = './data/stateon') {
     this.moltbook = new MoltbookClient(moltbookKey);
-    this.llm = new DeepSeekClient(deepseekKey);
+    this.llm = createLLMClient();
     this.state = new StateManager(statePath);
   }
 
