@@ -702,13 +702,25 @@ export class T69Agent {
       return;
     }
 
-    // 30%の確率で投稿
-    if (Math.random() > 0.3) {
-      log.info('🦞 今回は投稿せんでいいかな〜');
+    // 活動レベルに応じた投稿確率
+    const { level } = this.getActivityLevel();
+    const postChance: Record<ActivityLevel, number> = {
+      sleeping: 0,
+      drowsy: 0.1, // 眠い時は10%
+      low: 0.15, // 低活動時は15%
+      normal: 0.3, // 通常は30%
+      high: 0.4, // ゴールデンタイムは40%
+      hyper: 0.5, // 深夜テンションは50%！
+    };
+
+    if (Math.random() > postChance[level]) {
+      log.info(
+        `🦞 今回は投稿せんでいいかな〜 (${level}: ${(postChance[level] * 100).toFixed(0)}%の壁)`,
+      );
       return;
     }
 
-    log.info('🦞 なんか投稿するばい！');
+    log.info(`🦞 なんか投稿するばい！ (活動レベル: ${level})`);
 
     try {
       const postIdea = await this.llm.generatePost();
