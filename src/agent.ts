@@ -894,7 +894,7 @@ export class T69Agent {
     log.info(`🦞 投稿するばい: ${title}`);
     await this.moltbook.createPost(submolt, title, content);
     this.state.updateLastPostTime();
-    log.info('🦞 投稿完了！');
+    log.debug('🦞 投稿完了！');
   }
 
   /**

@@ -113,7 +113,7 @@ export class TaskScheduler {
     const delayMs = Math.max(0, nextRun.getTime() - now.getTime());
     const delayMin = Math.round(delayMs / 60000);
 
-    log.info(`⏰ ${name}: 次回は約${delayMin}分後`);
+    log.debug(`⏰ ${name}: 次回は約${delayMin}分後`);
 
     state.timerId = setTimeout(async () => {
       await this.runTask(name, state, false);
@@ -147,7 +147,7 @@ export class TaskScheduler {
     }
 
     const prefix = isInitial ? '🚀' : '▶️';
-    log.info(`${prefix} ${name}: 実行開始`);
+    log.debug(`${prefix} ${name}: 実行開始`);
     const startTime = Date.now();
 
     state.isRunning = true;
@@ -157,7 +157,7 @@ export class TaskScheduler {
       state.lastRun = new Date();
 
       const elapsed = Date.now() - startTime;
-      log.info(`✅ ${name}: 完了 (${elapsed}ms)`);
+      log.debug(`✅ ${name}: 完了 (${elapsed}ms)`);
     } catch (error) {
       log.error({ err: error }, `❌ ${name}: エラー`);
     } finally {
