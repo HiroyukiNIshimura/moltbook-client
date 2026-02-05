@@ -40,7 +40,7 @@ export function getAPIKeyEnvName(provider: LLMProvider): string {
       return 'GEMINI_API_KEY';
     case 'openai':
       return 'OPENAI_API_KEY';
-    case 'deepseek':
+    //case 'deepseek':
     default:
       return 'DEEPSEEK_API_KEY';
   }
@@ -77,14 +77,14 @@ export function createLLMClient(
       return new GeminiClient(key);
     case 'openai':
       return new OpenAIClient(key);
-    case 'deepseek':
+    //case 'deepseek':
     default:
       return new DeepSeekClient(key);
   }
 }
 
-// 型のエクスポート
-export type { LLMClient } from './types';
 export { DeepSeekClient } from './deepseek';
 export { GeminiClient } from './gemini';
 export { OpenAIClient } from './openai';
+// 型のエクスポート
+export type { LLMClient } from './types';

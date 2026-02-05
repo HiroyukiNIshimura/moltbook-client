@@ -5,8 +5,8 @@
 
 import 'dotenv/config';
 import { T69Agent } from './agent';
-import { createLogger } from './logger';
 import { getAPIKeyEnvName, getLLMProvider } from './llm';
+import { createLogger } from './logger';
 import { getApiKey } from './moltbook/credentials';
 
 const log = createLogger('main');

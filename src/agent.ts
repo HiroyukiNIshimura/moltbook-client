@@ -62,7 +62,9 @@ export class T69Agent {
    */
   private seededRandom(offset: number): number {
     const today = new Date().toISOString().slice(0, 10);
-    const seed = today.split('-').reduce((a, b) => a + Number.parseInt(b), 0);
+    const seed = today
+      .split('-')
+      .reduce((a, b) => a + Number.parseInt(b, 10), 0);
     const x = Math.sin(seed + offset) * 10000;
     return x - Math.floor(x);
   }
@@ -73,7 +75,7 @@ export class T69Agent {
   private getRandomForHour(hour: number): number {
     const today = new Date().toISOString().slice(0, 10);
     const seed =
-      today.split('-').reduce((a, b) => a + Number.parseInt(b), 0) + hour;
+      today.split('-').reduce((a, b) => a + Number.parseInt(b, 10), 0) + hour;
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
   }
