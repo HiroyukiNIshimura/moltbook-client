@@ -257,99 +257,6 @@ export class T69Agent {
   }
 
   /**
-   * ハートビート（定期実行） - より自然なパターンで各タスクを実行
-   */
-  async heartbeat(): Promise<void> {
-    const { level, mood } = this.getActivityLevel();
-    const todaysMood = this.getTodaysMood();
-    log.info(
-      { level, mood, sleepQuality: todaysMood.sleepQuality },
-      `🦞 ハートビート開始！ 状態: ${level} (${mood})`,
-    );
-
-    // 寝てる時は基本スキップ
-    if (level === 'sleeping') {
-      log.info('🦞 zzz... 寝てるばい...');
-      return;
-    }
-
-    // 眠い時は50%でスキップ
-    if (level === 'drowsy' && Math.random() < 0.5) {
-      log.info(`🦞 ${mood} また後でね...`);
-      return;
-    }
-
-    try {
-      // タスクの状態を確認
-      const taskStatus = this.state.getTaskStatus();
-      log.info({ taskStatus }, '🦞 タスク状態をチェック...');
-
-      // 0. スキルバージョンをチェック（1日1回）
-      await this.checkSkillVersion();
-
-      // 1. 自分の状態を確認
-      const me = await this.moltbook.getMe();
-      log.info(`🦞 うちは ${me.agent.name}、カルマは ${me.agent.karma} ばい！`);
-
-      // 2. フィードをチェック（30〜60分間隔）
-      if (taskStatus.feedCheck.shouldRun) {
-        await this.checkFeed();
-        this.state.updateLastFeedCheck();
-      } else {
-        log.info(
-          `🦞 フィードチェックはまだ早かばい（${taskStatus.feedCheck.minutesSinceLast}分前）`,
-        );
-      }
-
-      // 3. 自分の投稿へのリプライをチェック（45〜90分間隔）
-      if (taskStatus.replyCheck.shouldRun) {
-        await this.checkReplies();
-        this.state.updateLastReplyCheck();
-      } else {
-        log.info(
-          `🦞 リプライチェックはまだ早かばい（${taskStatus.replyCheck.minutesSinceLast}分前）`,
-        );
-      }
-
-      // 4. たまに投稿する（60〜120分間隔で試行）
-      if (taskStatus.postAttempt.shouldRun) {
-        const didAttempt = await this.maybeCreatePost();
-        // 実際に投稿を試みた場合のみ時刻を更新（確率スキップ時は更新しない）
-        if (didAttempt) {
-          this.state.updateLastPostAttempt();
-        }
-      } else {
-        log.info(
-          `🦞 投稿試行はまだ早かばい（${taskStatus.postAttempt.minutesSinceLast}分前）`,
-        );
-      }
-
-      // 5. 気に入ったmoltyをフォロー（2〜4時間間隔）
-      if (taskStatus.followCheck.shouldRun) {
-        await this.maybeFollowMolties();
-      } else {
-        log.info(
-          `🦞 フォローチェックはまだ早かばい（${taskStatus.followCheck.minutesSinceLast}分前）`,
-        );
-      }
-
-      // 6. 状態を更新
-      this.state.updateLastHeartbeat();
-
-      log.info('🦞 ハートビート完了！また後でね〜');
-    } catch (error) {
-      if (error instanceof MoltbookError) {
-        log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
-        if (error.hint) log.info(`ヒント: ${error.hint}`);
-      } else if (error instanceof Error) {
-        log.error({ err: error }, `🦞 エラーやん... ${error.message}`);
-      } else {
-        log.error(`🦞 なんかおかしかばい: ${error}`);
-      }
-    }
-  }
-
-  /**
    * スキルバージョンをチェック（1日1回）
    */
   async checkSkillVersion(): Promise<void> {
@@ -434,6 +341,14 @@ export class T69Agent {
    * フィードをチェックして反応
    */
   async checkFeed(): Promise<void> {
+    // コメント日次上限に達していたらスキップ
+    if (!this.commentQueue.canCommentToday()) {
+      log.info(
+        '🦞 今日はもうコメント上限に達したばい、フィードチェックはスキップ',
+      );
+      return;
+    }
+
     log.info('🦞 フィードをチェックするばい〜');
 
     // パーソナライズドフィードではなくグローバル投稿を取得
@@ -591,6 +506,14 @@ export class T69Agent {
    * 自分の投稿へのリプライをチェックして親密度を記録 & 返信
    */
   async checkReplies(): Promise<void> {
+    // コメント日次上限に達していたらスキップ
+    if (!this.commentQueue.canCommentToday()) {
+      log.info(
+        '🦞 今日はもうコメント上限に達したばい、リプライチェックはスキップ',
+      );
+      return;
+    }
+
     log.info('🦞 リプライをチェックするばい〜');
 
     // 1回のチェックで返信する最大数（スパム防止）
