@@ -219,6 +219,26 @@ export class MoltbookClient {
     );
   }
 
+  /**
+   * 今日の自分のコメント数を取得
+   */
+  async getMyTodayCommentCount(): Promise<number> {
+    const me = await this.getMe();
+    const myName = me.agent.name;
+    const profile = await this.getProfile(myName);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const recentComments =
+      (profile as { recentComments?: { created_at: string }[] })
+        .recentComments || [];
+    const todayCount = recentComments.filter((c) =>
+      c.created_at.startsWith(today),
+    ).length;
+
+    log.info(`📊 本日のコメント数: ${todayCount}件`);
+    return todayCount;
+  }
+
   // ========== Feed ==========
 
   /**

@@ -2,6 +2,7 @@
  * T-69 エージェント本体
  */
 
+import { CommentQueue } from './commentQueue';
 import { createLLMClient, type LLMClient } from './llm';
 import { createLogger } from './logger';
 import { MoltbookClient, MoltbookError } from './moltbook/client';
@@ -11,7 +12,7 @@ import { StateManager } from './state/memory';
 const log = createLogger('agent');
 
 /** 活動レベル */
-type ActivityLevel =
+export type ActivityLevel =
   | 'sleeping'
   | 'drowsy'
   | 'low'
@@ -31,6 +32,7 @@ export class T69Agent {
   private moltbook: MoltbookClient;
   private llm: LLMClient;
   private state: StateManager;
+  private commentQueue: CommentQueue;
   private agentName: string | null = null;
   private cachedMood: { date: string; mood: TodaysMood } | null = null;
 
@@ -38,6 +40,7 @@ export class T69Agent {
     this.moltbook = new MoltbookClient(moltbookKey);
     this.llm = createLLMClient();
     this.state = new StateManager(statePath);
+    this.commentQueue = new CommentQueue();
   }
 
   /**
@@ -137,7 +140,7 @@ export class T69Agent {
   /**
    * 現在の活動レベルを取得（時間帯 + 今日の調子）
    */
-  private getActivityLevel(): { level: ActivityLevel; mood: string } {
+  getActivityLevel(): { level: ActivityLevel; mood: string } {
     const hour = new Date().getHours();
     const todaysMood = this.getTodaysMood();
 
@@ -185,6 +188,51 @@ export class T69Agent {
     }
 
     return { level: 'normal', mood: '普通ばい' };
+  }
+
+  /**
+   * 現在寝ているかどうか
+   */
+  isSleeping(): boolean {
+    return this.getActivityLevel().level === 'sleeping';
+  }
+
+  /**
+   * drowsy時の確率スキップ判定（50%でtrue=スキップ）
+   */
+  shouldSkipDueToDrowsy(): boolean {
+    const { level, mood } = this.getActivityLevel();
+    if (level === 'drowsy' && Math.random() < 0.5) {
+      log.info(`🦞 ${mood} また後でね...`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * コメントキューを処理（30秒間隔で呼び出される）
+   */
+  async processCommentQueue(): Promise<void> {
+    await this.commentQueue.processOne(this.moltbook);
+  }
+
+  /**
+   * コメントキューの統計を取得
+   */
+  getCommentQueueStats() {
+    return this.commentQueue.getStats();
+  }
+
+  /**
+   * コメントキューの日次カウントを初期化（起動時に呼び出す）
+   */
+  async initializeCommentCount(): Promise<void> {
+    try {
+      const count = await this.moltbook.getMyTodayCommentCount();
+      this.commentQueue.initializeDailyCount(count);
+    } catch (error) {
+      log.warn({ err: error }, '⚠️ 本日のコメント数を取得できなかったばい');
+    }
   }
 
   /**
@@ -304,7 +352,7 @@ export class T69Agent {
   /**
    * スキルバージョンをチェック（1日1回）
    */
-  private async checkSkillVersion(): Promise<void> {
+  async checkSkillVersion(): Promise<void> {
     if (!this.state.shouldCheckSkillVersion()) {
       log.debug('🦞 スキルチェックは今日もうやったばい');
       return;
@@ -385,7 +433,7 @@ export class T69Agent {
   /**
    * フィードをチェックして反応
    */
-  private async checkFeed(): Promise<void> {
+  async checkFeed(): Promise<void> {
     log.info('🦞 フィードをチェックするばい〜');
 
     // パーソナライズドフィードではなくグローバル投稿を取得
@@ -514,27 +562,35 @@ export class T69Agent {
         innerThoughts: judgment.reason, // 心の声を渡す
       });
 
-      await this.moltbook.createComment(post.id, comment);
-      this.state.markCommented(post.id);
-      this.state.recordCommentTarget(postAuthorName); // コメント先を記録
-      // 親密度を記録（自分以外）
-      if (postAuthorName !== myName && postAuthorName !== '不明') {
-        this.state.recordRepliedTo(postAuthorName);
-      }
-      log.info(
-        { level },
-        `💬 「${post.title}」にコメント: "${comment}" (活動レベル: ${level})`,
-      );
+      // キューに追加（実際の送信はキュー処理タスクが行う）
+      const enqueued = this.commentQueue.enqueue({
+        postId: post.id,
+        content: comment,
+        metadata: {
+          postTitle: post.title,
+          targetAuthor: postAuthorName,
+        },
+      });
 
-      // コメントのレート制限（20秒）
-      await this.sleep(20000);
+      if (enqueued) {
+        this.state.markCommented(post.id);
+        this.state.recordCommentTarget(postAuthorName); // コメント先を記録
+        // 親密度を記録（自分以外）
+        if (postAuthorName !== myName && postAuthorName !== '不明') {
+          this.state.recordRepliedTo(postAuthorName);
+        }
+        log.info(
+          { level },
+          `📝 「${post.title}」へのコメントをキューに追加: "${comment}" (活動レベル: ${level})`,
+        );
+      }
     }
   }
 
   /**
    * 自分の投稿へのリプライをチェックして親密度を記録 & 返信
    */
-  private async checkReplies(): Promise<void> {
+  async checkReplies(): Promise<void> {
     log.info('🦞 リプライをチェックするばい〜');
 
     // 1回のチェックで返信する最大数（スパム防止）
@@ -678,22 +734,32 @@ export class T69Agent {
       innerThoughts: judgment.reason,
     });
 
-    // 返信を投稿（parent_id にコメントIDを指定して、そのコメントへの返信にする）
-    await this.moltbook.createComment(post.id, reply, comment.id);
+    // キューに追加（実際の送信はキュー処理タスクが行う）
+    const enqueued = this.commentQueue.enqueue({
+      postId: post.id,
+      content: reply,
+      parentId: comment.id,
+      metadata: {
+        postTitle: post.title,
+        targetAuthor: commenterName,
+      },
+    });
 
-    log.info(
-      { to: commenterName, postTitle: post.title },
-      `💬 ${commenterName}に返信したばい: "${reply}"`,
-    );
+    if (enqueued) {
+      log.info(
+        { to: commenterName, postTitle: post.title },
+        `📝 ${commenterName}への返信をキューに追加: "${reply}"`,
+      );
+    }
 
-    return true;
+    return enqueued;
   }
 
   /**
    * たまに投稿する（夕方は開発進捗を優先）
    * @returns true: 実際に投稿を試みた, false: 確率でスキップ
    */
-  private async maybeCreatePost(): Promise<boolean> {
+  async maybeCreatePost(): Promise<boolean> {
     // 投稿制限チェック
     if (!this.state.canPost()) {
       const minutes = this.state.getMinutesUntilCanPost();
@@ -758,7 +824,7 @@ export class T69Agent {
   /**
    * 気に入ったmoltyをフォローする（複合スコア方式）
    */
-  private async maybeFollowMolties(): Promise<void> {
+  async maybeFollowMolties(): Promise<void> {
     // 1日のフォロー上限チェック
     if (!this.state.canFollowToday()) {
       log.info('🦞 今日はもうフォローしすぎばい〜');

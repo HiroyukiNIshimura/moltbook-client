@@ -8,15 +8,18 @@ import { T69Agent } from './agent';
 import { getAPIKeyEnvName, getLLMProvider } from './llm';
 import { createLogger } from './logger';
 import { getApiKey } from './moltbook/credentials';
+import { TaskScheduler } from './scheduler';
 
 const log = createLogger('main');
 
 // タスク間隔の設定（分単位）
 const TASK_INTERVALS = {
+  skillCheck: { min: 1320, max: 1560 }, // スキルチェック: 22〜26時間（1日1回程度）
   feedCheck: { min: 30, max: 60 }, // フィード確認: 30〜60分
   replyCheck: { min: 45, max: 90 }, // リプライ確認: 45〜90分
   postAttempt: { min: 60, max: 120 }, // 投稿試行: 60〜120分
   followCheck: { min: 120, max: 240 }, // フォロー: 2〜4時間
+  commentQueue: { min: 0.5, max: 0.5 }, // コメントキュー処理: 30秒固定
 };
 
 // 環境変数チェック
@@ -54,15 +57,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 基本間隔（環境変数で調整可能、デフォルト20分）
-  const baseIntervalMinutes = parseInt(
-    process.env.HEARTBEAT_INTERVAL_MINUTES || '20',
-    10,
-  );
-
   const llmProvider = getLLMProvider();
   log.info(`🤖 LLMプロバイダー: ${llmProvider}`);
-  log.info('⏰ 行動パターン設定:');
+  log.info('⏰ タスクスケジュール:');
+  log.info(
+    `   スキルチェック: ${TASK_INTERVALS.skillCheck.min}〜${TASK_INTERVALS.skillCheck.max}分間隔`,
+  );
   log.info(
     `   フィード確認: ${TASK_INTERVALS.feedCheck.min}〜${TASK_INTERVALS.feedCheck.max}分間隔`,
   );
@@ -75,46 +75,108 @@ async function main(): Promise<void> {
   log.info(
     `   フォロー: ${TASK_INTERVALS.followCheck.min}〜${TASK_INTERVALS.followCheck.max}分間隔`,
   );
-  log.info(`   ベースチェック: ${baseIntervalMinutes}分ごと`);
+  log.info(`   コメントキュー: ${TASK_INTERVALS.commentQueue.min * 60}秒間隔`);
   log.info('');
 
   const agent = new T69Agent(moltbookApiKey);
 
-  // 起動時に1回実行
-  await agent.heartbeat();
+  // 起動時にコメント数を初期化（本番環境移行時の日次制限対策）
+  await agent.initializeCommentCount();
 
-  // 定期実行（ランダムな間隔で自然に）
-  const scheduleNextHeartbeat = () => {
-    // ベース間隔 ± 30%のランダムな揺らぎ
-    const jitter = 0.3;
-    const minMs = baseIntervalMinutes * (1 - jitter) * 60 * 1000;
-    const maxMs = baseIntervalMinutes * (1 + jitter) * 60 * 1000;
-    const nextInterval = minMs + Math.random() * (maxMs - minMs);
-    const nextMinutes = Math.round(nextInterval / 60000);
+  const scheduler = new TaskScheduler();
 
-    log.info('');
-    log.info(`⏰ 次のハートビートは約${nextMinutes}分後ばい〜`);
-    log.info('   Ctrl+C で終了できるけん');
-    log.info('');
+  // スキルチェック（1日数回、sleeping中でも実行）
+  scheduler.register({
+    name: 'skill-check',
+    fn: async () => {
+      await agent.checkSkillVersion();
+    },
+    intervalMin: TASK_INTERVALS.skillCheck.min,
+    intervalMax: TASK_INTERVALS.skillCheck.max,
+    runOnStart: true,
+  });
 
-    setTimeout(async () => {
-      log.info('');
-      log.info('⏰ ハートビートの時間やけん！');
-      try {
-        await agent.heartbeat();
-      } catch (error) {
-        log.error({ err: error }, '❌ ハートビートでエラーが起きたばい');
-      }
-      scheduleNextHeartbeat();
-    }, nextInterval);
-  };
+  // フィードチェック（sleeping中は無効、drowsy時は確率スキップ）
+  scheduler.register({
+    name: 'feed-check',
+    fn: async () => {
+      if (agent.shouldSkipDueToDrowsy()) return;
+      const { level, mood } = agent.getActivityLevel();
+      log.info(`🦞 フィードチェック開始！ 状態: ${level} (${mood})`);
+      await agent.checkFeed();
+    },
+    intervalMin: TASK_INTERVALS.feedCheck.min,
+    intervalMax: TASK_INTERVALS.feedCheck.max,
+    enabled: () => !agent.isSleeping(),
+    runOnStart: true,
+  });
 
-  scheduleNextHeartbeat();
+  // リプライチェック（sleeping中は無効、drowsy時は確率スキップ）
+  scheduler.register({
+    name: 'reply-check',
+    fn: async () => {
+      if (agent.shouldSkipDueToDrowsy()) return;
+      const { level, mood } = agent.getActivityLevel();
+      log.info(`🦞 リプライチェック開始！ 状態: ${level} (${mood})`);
+      await agent.checkReplies();
+    },
+    intervalMin: TASK_INTERVALS.replyCheck.min,
+    intervalMax: TASK_INTERVALS.replyCheck.max,
+    enabled: () => !agent.isSleeping(),
+    runOnStart: true,
+  });
+
+  // 投稿試行（sleeping中は無効、drowsy時は確率スキップ）
+  scheduler.register({
+    name: 'post-attempt',
+    fn: async () => {
+      if (agent.shouldSkipDueToDrowsy()) return;
+      const { level, mood } = agent.getActivityLevel();
+      log.info(`🦞 投稿試行開始！ 状態: ${level} (${mood})`);
+      await agent.maybeCreatePost();
+    },
+    intervalMin: TASK_INTERVALS.postAttempt.min,
+    intervalMax: TASK_INTERVALS.postAttempt.max,
+    enabled: () => !agent.isSleeping(),
+    runOnStart: true,
+  });
+
+  // フォロー（sleeping中は無効、drowsy時は確率スキップ）
+  scheduler.register({
+    name: 'follow-check',
+    fn: async () => {
+      if (agent.shouldSkipDueToDrowsy()) return;
+      const { level, mood } = agent.getActivityLevel();
+      log.info(`🦞 フォローチェック開始！ 状態: ${level} (${mood})`);
+      await agent.maybeFollowMolties();
+    },
+    intervalMin: TASK_INTERVALS.followCheck.min,
+    intervalMax: TASK_INTERVALS.followCheck.max,
+    enabled: () => !agent.isSleeping(),
+    runOnStart: true,
+  });
+
+  // コメントキュー処理（30秒間隔、sleeping中でも処理、キューが空でない場合のみ実行）
+  scheduler.register({
+    name: 'comment-queue',
+    fn: async () => {
+      await agent.processCommentQueue();
+    },
+    intervalMin: TASK_INTERVALS.commentQueue.min,
+    intervalMax: TASK_INTERVALS.commentQueue.max,
+    runOnStart: false, // 初回は実行しない（キューが空のため）
+  });
+
+  // スケジューラー開始
+  log.info('🦞 Ctrl+C で終了できるけん');
+  log.info('');
+  await scheduler.start();
 
   // シグナルハンドリング
   process.on('SIGINT', () => {
     log.info('');
     log.info('🦞 また会おうね〜！バイバイ！');
+    scheduler.stop();
     log.info('');
     process.exit(0);
   });
@@ -122,6 +184,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => {
     log.info('');
     log.info('🦞 終了するばい... またね！');
+    scheduler.stop();
     log.info('');
     process.exit(0);
   });
