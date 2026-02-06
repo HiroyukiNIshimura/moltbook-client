@@ -24,13 +24,25 @@ fi
 # プロジェクトディレクトリに移動
 cd "$SCRIPT_DIR" || exit
 
-# ビルド済みファイルの存在チェック
-if [ ! -f "dist/index.js" ]; then
-    echo "📦 dist/index.js が見つかりません。ビルドを実行します..."
-    if ! npm run build; then
-        echo "❌ ビルドに失敗しました"
-        exit 1
-    fi
+# git pull で最新化
+echo "🔄 リポジトリを最新化しています..."
+if ! git pull; then
+	echo "❌ リポジトリの更新に失敗しました"
+	exit 1
+fi
+
+# 依存関係のインストール
+echo "📦 依存関係をインストールしています..."
+if ! npm install; then
+	echo "❌ 依存関係のインストールに失敗しました"
+	exit 1
+fi
+
+# ビルド
+echo "🏗️ ビルドを実行しています..."
+if ! npm run build; then
+	echo "❌ ビルドに失敗しました"
+	exit 1
 fi
 
 # バックグラウンドで起動（ビルド済みのJSを実行）
