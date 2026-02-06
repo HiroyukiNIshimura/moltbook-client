@@ -113,7 +113,7 @@ export class TaskScheduler {
     const delayMs = Math.max(0, nextRun.getTime() - now.getTime());
     const delayMin = Math.round(delayMs / 60000);
 
-    log.debug(`⏰ ${name}: 次回は約${delayMin}分後`);
+    log.info(`⏰ ${name}: 次回は約${delayMin}分後`);
 
     state.timerId = setTimeout(async () => {
       await this.runTask(name, state, false);
